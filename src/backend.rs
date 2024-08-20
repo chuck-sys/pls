@@ -4,6 +4,8 @@ use tower_lsp::{Client, LanguageServer};
 
 use async_channel::{Receiver, Sender};
 
+use tree_sitter::{Language, Parser};
+
 use crate::msg::{MsgFromServer, MsgToServer};
 
 pub struct Backend {
@@ -16,7 +18,7 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         let (sender_to_backend, receiver_from_server) = async_channel::unbounded();
         let (sender_to_server, receiver_from_backend) = async_channel::unbounded();
-        let mut server = crate::server::Server { client: client.clone(), sender_to_backend, receiver_from_backend };
+        let mut server = crate::server::Server::new(client.clone(), sender_to_backend, receiver_from_backend);
         std::thread::spawn(move || {
             async move {
                 server.serve().await;
@@ -63,5 +65,13 @@ impl LanguageServer for Backend {
         self.send(MsgToServer::Shutdown).await;
         self.client.log_message(MessageType::LOG, "server thread has shutdown").await;
         Ok(())
+    }
+
+    async fn did_open(&self, data: DidOpenTextDocumentParams) {
+        self.send(MsgToServer::DidOpen {
+            url: data.text_document.uri,
+            text: data.text_document.text,
+            version: data.text_document.version,
+        }).await;
     }
 }
