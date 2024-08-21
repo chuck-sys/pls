@@ -6,9 +6,12 @@ pub enum MsgToServer {
         text: String,
         version: i32,
     },
+    DocumentSymbol(Url),
     Shutdown,
 }
 
 pub enum MsgFromServer {
     References(Vec<Location>),
+    FlatSymbols(Vec<SymbolInformation>),
+    NestedSymbols(Vec<DocumentSymbol>),
 }

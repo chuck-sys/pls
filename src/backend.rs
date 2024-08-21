@@ -74,4 +74,14 @@ impl LanguageServer for Backend {
             version: data.text_document.version,
         }).await;
     }
+
+    async fn document_symbol(&self, data: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+        self.send(MsgToServer::DocumentSymbol(data.text_document.uri)).await;
+
+        match self.recv().await {
+            Some(MsgFromServer::NestedSymbols(symbols)) => Ok(Some(DocumentSymbolResponse::Nested(symbols))),
+            Some(MsgFromServer::FlatSymbols(symbols)) => Ok(Some(DocumentSymbolResponse::Flat(symbols))),
+            _ => Ok(None),
+        }
+    }
 }

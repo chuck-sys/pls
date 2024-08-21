@@ -41,6 +41,7 @@ impl Server {
                 Ok(msg) => match msg {
                     MsgToServer::Shutdown => break,
                     MsgToServer::DidOpen { url, text, version } => self.did_open(url, text, version).await,
+                    MsgToServer::DocumentSymbol(url) => self.document_symbol(url).await,
                     _ => unimplemented!(),
                 },
                 Err(e) => self.client.log_message(MessageType::ERROR, e).await,
@@ -54,6 +55,15 @@ impl Server {
                 self.file_trees.insert(url, tree);
             },
             None => self.client.log_message(MessageType::ERROR, format!("could not parse file `{}`", &url)).await,
+        }
+    }
+
+    async fn document_symbol(&mut self, url: Url) {
+        if let Some(tree) = self.file_trees.get(&url) {
+        } else {
+            if let Err(e) = self.sender_to_backend.send(MsgFromServer::FlatSymbols(vec![])).await {
+                self.client.log_message(MessageType::ERROR, format!("file not loaded `{}`: {}", &url, e)).await;
+            }
         }
     }
 }
