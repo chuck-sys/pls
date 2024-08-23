@@ -4,8 +4,6 @@ use tower_lsp::{Client, LanguageServer};
 
 use async_channel::{Receiver, Sender};
 
-use tree_sitter::{Language, Parser};
-
 use crate::msg::{MsgFromServer, MsgToServer};
 
 pub struct Backend {
