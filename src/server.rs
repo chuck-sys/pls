@@ -9,13 +9,18 @@ use std::collections::HashMap;
 
 use crate::msg::{MsgFromServer, MsgToServer};
 
+struct FileData {
+    contents: String,
+    tree: Tree,
+}
+
 pub struct Server {
     client: Client,
     sender_to_backend: Sender<MsgFromServer>,
     receiver_from_backend: Receiver<MsgToServer>,
     parser: Parser,
 
-    file_trees: HashMap<Url, Tree>,
+    file_trees: HashMap<Url, FileData>,
 }
 
 fn range_plaintext(file_contents: &String, range: tree_sitter::Range) -> String {
@@ -95,19 +100,19 @@ impl Server {
     }
 
     async fn did_open(&mut self, url: Url, text: String, version: i32) {
-        match self.parser.parse(text, None) {
+        match self.parser.parse(&text, None) {
             Some(tree) => {
-                self.file_trees.insert(url, tree);
+                self.file_trees.insert(url, FileData { contents: text, tree });
             },
             None => self.client.log_message(MessageType::ERROR, format!("could not parse file `{}`", &url)).await,
         }
     }
 
     async fn document_symbol(&mut self, url: Url) {
-        if let Some(tree) = self.file_trees.get(&url) {
-            // if let Err(e) = self.sender_to_backend.send(MsgFromServer::FlatSymbols(symbols(&url, &tree.root_node()))).await {
-            //     self.client.log_message(MessageType::ERROR, format!("document_symbol: unable to send to backend: {}", e)).await;
-            // }
+        if let Some(FileData {contents, tree}) = self.file_trees.get(&url) {
+            if let Err(e) = self.sender_to_backend.send(MsgFromServer::FlatSymbols(document_symbols(&url, &tree.root_node(), contents))).await {
+                self.client.log_message(MessageType::ERROR, format!("document_symbol: unable to send to backend: {}", e)).await;
+            }
         } else {
             if let Err(e) = self.sender_to_backend.send(MsgFromServer::FlatSymbols(vec![])).await {
                 self.client.log_message(MessageType::ERROR, format!("document_symbol: unable to send; no file `{}`: {}", &url, e)).await;
