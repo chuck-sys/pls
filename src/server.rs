@@ -27,41 +27,109 @@ fn range_plaintext(file_contents: &String, range: tree_sitter::Range) -> String 
     file_contents[range.start_byte..range.end_byte].to_owned()
 }
 
-fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<SymbolInformation> {
-    let mut ret = Vec::new();
-    let mut cursor = root_node.walk();
+fn to_position(point: &tree_sitter::Point) -> Position {
+    Position {
+        line: point.row as u32,
+        character: point.column as u32,
+    }
+}
 
-    while cursor.goto_first_child() {
+fn to_range(range: &tree_sitter::Range) -> Range {
+    Range {
+        start: to_position(&range.start_point),
+        end: to_position(&range.end_point),
+    }
+}
+
+fn document_symbols_property_decl(uri: &Url, property_node: &Node, file_contents: &String, ret: &mut Vec<SymbolInformation>) {
+    let mut cursor = property_node.walk();
+    if !cursor.goto_first_child() {
+        return;
+    }
+
+    loop {
+        let kind = cursor.node().kind();
+        if kind == "property_element" {
+            cursor.goto_first_child();
+
+            ret.push(SymbolInformation {
+                name: range_plaintext(file_contents, cursor.node().range()),
+                kind: SymbolKind::PROPERTY,
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: uri.clone(),
+                    range: to_range(&property_node.range()),
+                },
+                container_name: None,
+            });
+
+            return;
+        }
+
+        if !cursor.goto_next_sibling() {
+            return;
+        }
+    }
+}
+
+fn document_symbols_class_decl(uri: &Url, class_node: &Node, file_contents: &String, ret: &mut Vec<SymbolInformation>) {
+    if let Some(name_node) = class_node.child_by_field_name("name") {
+        ret.push(SymbolInformation {
+            name: range_plaintext(file_contents, name_node.range()),
+            kind: SymbolKind::CLASS,
+            tags: None,
+            deprecated: None,
+            location: Location {
+                uri: uri.clone(),
+                range: to_range(&class_node.range()),
+            },
+            container_name: None,
+        });
+    }
+
+    if let Some(decl_list) = class_node.child_by_field_name("body") {
+        let mut cursor = decl_list.walk();
+        if !cursor.goto_first_child() {
+            return;
+        }
+
         loop {
             let kind = cursor.node().kind();
-            if kind == "class_declaration" {
-                if let Some(name_node) = cursor.node().child_by_field_name("name") {
-                    ret.push(SymbolInformation {
-                        name: range_plaintext(file_contents, name_node.range()),
-                        kind: SymbolKind::CLASS,
-                        tags: None,
-                        deprecated: None,
-                        location: Location {
-                            uri: uri.clone(),
-                            range: Range {
-                                start: Position {
-                                    line: cursor.node().range().start_point.row as u32,
-                                    character: cursor.node().range().start_point.column as u32,
-                                },
-                                end: Position {
-                                    line: cursor.node().range().end_point.row as u32,
-                                    character: cursor.node().range().end_point.column as u32,
-                                },
-                            },
-                        },
-                        container_name: None,
-                    });
-                }
+            if kind == "property_declaration" {
+                document_symbols_property_decl(uri, &cursor.node(), file_contents, ret);
+            } else if kind == "{" || kind == "}" {
+                // ignore these
+            } else if kind == "method_declaration" {
+                // unimpl
+            } else {
+                unimplemented!("{}", kind);
             }
 
             if !cursor.goto_next_sibling() {
                 break;
             }
+        }
+    }
+}
+
+fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<SymbolInformation> {
+    let mut ret = Vec::new();
+    let mut cursor = root_node.walk();
+
+    if !cursor.goto_first_child() {
+        return ret;
+    }
+
+    loop {
+        let kind = cursor.node().kind();
+        // DFS
+        if kind == "class_declaration" {
+            document_symbols_class_decl(uri, &cursor.node(), file_contents, &mut ret);
+        }
+
+        if !cursor.goto_next_sibling() {
+            break;
         }
     }
 
@@ -130,33 +198,25 @@ mod test {
 
     #[test]
     fn test_get_symbols() {
-        let source = "<?php\nclass Whatever {\npublic int $x;\n}";
+        let source = "<?php
+            class Whatever {
+                public int $x = 12;
+                public function foo(int $bar): void
+                {
+                    $this->x = $bar;
+                }
+            }";
+        let expected_symbols = ["Whatever", "$x", "foo", "$bar"];
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_php::language_php()).expect("error loading PHP grammar");
 
         let tree = parser.parse(source, None).unwrap();
         let root_node = tree.root_node();
         let uri = Url::from_file_path("/home/file.php").unwrap();
-        let actual_symbols = document_symbols(&uri, &root_node, &source.to_string());
-        assert_eq!(actual_symbols[0], SymbolInformation {
-            name: "Whatever".to_string(),
-            kind: SymbolKind::CLASS,
-            tags: None,
-            deprecated: None,
-            location: Location {
-                uri: Url::from_file_path("/home/file.php").unwrap(),
-                range: Range {
-                    start: Position {
-                        line: 1,
-                        character: 0,
-                    },
-                    end: Position {
-                        line: 3,
-                        character: 1,
-                    },
-                },
-            },
-            container_name: None,
-        });
+        let actual_symbols: Vec<String> = document_symbols(&uri, &root_node, &source.to_string())
+            .into_iter()
+            .map(|SymbolInformation { name, .. }| name)
+            .collect();
+        assert_eq!(actual_symbols, expected_symbols);
     }
 }
