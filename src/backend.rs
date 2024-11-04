@@ -4,6 +4,8 @@ use tower_lsp::{Client, LanguageServer};
 
 use async_channel::{Receiver, Sender};
 
+use std::path::PathBuf;
+
 use crate::msg::{MsgFromServer, MsgToServer};
 
 pub struct Backend {
@@ -47,6 +49,29 @@ impl Backend {
     }
 }
 
+/**
+ * Composer files paths should always exist.
+ *
+ * Please remember to check existence because there is a chance that it gets deleted.
+ */
+fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> Result<Vec<PathBuf>> {
+    let mut composer_files = vec![];
+    for folder in workspace_folders {
+        if let Ok(path) = folder.uri.to_file_path() {
+            let composer_file = path.join("composer.json");
+            if !composer_file.exists() {
+                continue;
+            }
+
+            composer_files.push(composer_file);
+        } else {
+            continue;
+        }
+    }
+
+    Ok(composer_files)
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -82,6 +107,7 @@ impl LanguageServer for Backend {
 
         // TODO check workspace folders for `composer.json` and read namespaces with PSR-4 and
         // PSR-0 (maybe support it??)
+        let composer_files = get_composer_files(&workspace_folders)?;
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities::default(),
