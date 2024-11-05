@@ -2,6 +2,7 @@ use tower_lsp::{LspService, Server};
 
 mod backend;
 mod msg;
+mod php_namespace;
 mod server;
 
 #[tokio::main]

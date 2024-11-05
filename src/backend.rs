@@ -18,11 +18,10 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         let (sender_to_backend, receiver_from_server) = async_channel::unbounded();
         let (sender_to_server, receiver_from_backend) = async_channel::unbounded();
-        let mut server = crate::server::Server::new(client.clone(), sender_to_backend, receiver_from_backend);
-        std::thread::spawn(move || {
-            async move {
-                server.serve().await;
-            }
+        let mut server =
+            crate::server::Server::new(client.clone(), sender_to_backend, receiver_from_backend);
+        std::thread::spawn(move || async move {
+            server.serve().await;
         });
 
         Self {
@@ -44,7 +43,7 @@ impl Backend {
             Err(x) => {
                 self.client.log_message(MessageType::ERROR, x).await;
                 None
-            },
+            }
         }
     }
 }
@@ -80,34 +79,35 @@ impl LanguageServer for Backend {
             if let Some(root_uri) = params.root_uri {
                 workspace_folders.push(WorkspaceFolder {
                     uri: root_uri.clone(),
-                    name: root_uri.to_string()
+                    name: root_uri.to_string(),
                 });
-            } else {
-                // deprecated options, but we should check for them nonetheless
-                if let Some(root_path) = params.root_path {
-                    if let Ok(root_uri) = Url::from_directory_path(&root_path) {
-                        workspace_folders.push(WorkspaceFolder {
-                            uri: root_uri,
-                            name: root_path
-                        });
-                    }
-                }
             }
         }
 
         if workspace_folders.len() == 0 {
             self.client
-                .log_message(MessageType::LOG, "unable to find workspace folders, root paths, or root uris")
+                .log_message(
+                    MessageType::LOG,
+                    "unable to find workspace folders, root paths, or root uris",
+                )
                 .await;
         } else {
             self.client
-                .log_message(MessageType::LOG, format!("found {} workspace folders: {:?}", workspace_folders.len(), &workspace_folders))
+                .log_message(
+                    MessageType::LOG,
+                    format!(
+                        "found {} workspace folders: {:?}",
+                        workspace_folders.len(),
+                        &workspace_folders
+                    ),
+                )
                 .await;
         }
 
         // TODO check workspace folders for `composer.json` and read namespaces with PSR-4 and
         // PSR-0 (maybe support it??)
         let composer_files = get_composer_files(&workspace_folders)?;
+        self.send(MsgToServer::ComposerFiles(composer_files)).await;
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities::default(),
@@ -126,7 +126,9 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         self.send(MsgToServer::Shutdown).await;
-        self.client.log_message(MessageType::LOG, "server thread has shutdown").await;
+        self.client
+            .log_message(MessageType::LOG, "server thread has shutdown")
+            .await;
         Ok(())
     }
 
@@ -135,15 +137,24 @@ impl LanguageServer for Backend {
             url: data.text_document.uri,
             text: data.text_document.text,
             version: data.text_document.version,
-        }).await;
+        })
+        .await;
     }
 
-    async fn document_symbol(&self, data: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
-        self.send(MsgToServer::DocumentSymbol(data.text_document.uri)).await;
+    async fn document_symbol(
+        &self,
+        data: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        self.send(MsgToServer::DocumentSymbol(data.text_document.uri))
+            .await;
 
         match self.recv().await {
-            Some(MsgFromServer::NestedSymbols(symbols)) => Ok(Some(DocumentSymbolResponse::Nested(symbols))),
-            Some(MsgFromServer::FlatSymbols(symbols)) => Ok(Some(DocumentSymbolResponse::Flat(symbols))),
+            Some(MsgFromServer::NestedSymbols(symbols)) => {
+                Ok(Some(DocumentSymbolResponse::Nested(symbols)))
+            }
+            Some(MsgFromServer::FlatSymbols(symbols)) => {
+                Ok(Some(DocumentSymbolResponse::Flat(symbols)))
+            }
             _ => Ok(None),
         }
     }
