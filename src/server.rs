@@ -218,10 +218,6 @@ fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<
     ret
 }
 
-fn to_input_edit(r: &Range, text: &String) -> InputEdit {
-    todo!("manually compute byte offsets (according to claude??); no alts");
-}
-
 fn byte_offset(text: &String, r: &Position) -> Option<usize> {
     todo!();
 }
