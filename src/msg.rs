@@ -15,6 +15,5 @@ pub enum MsgToServer {
 
 pub enum MsgFromServer {
     References(Vec<Location>),
-    FlatSymbols(Vec<SymbolInformation>),
     NestedSymbols(Vec<DocumentSymbol>),
 }

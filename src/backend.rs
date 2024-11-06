@@ -151,10 +151,7 @@ impl LanguageServer for Backend {
         match self.recv().await {
             Some(MsgFromServer::NestedSymbols(symbols)) => {
                 Ok(Some(DocumentSymbolResponse::Nested(symbols)))
-            }
-            Some(MsgFromServer::FlatSymbols(symbols)) => {
-                Ok(Some(DocumentSymbolResponse::Flat(symbols)))
-            }
+            },
             _ => Ok(None),
         }
     }
