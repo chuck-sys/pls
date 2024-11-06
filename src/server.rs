@@ -3,7 +3,7 @@ use tower_lsp::Client;
 
 use async_channel::{Receiver, Sender};
 
-use tree_sitter::{Node, Parser, Tree};
+use tree_sitter::{Node, Parser, Tree, InputEdit};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,6 +14,7 @@ use crate::php_namespace::PhpNamespace;
 struct FileData {
     contents: String,
     tree: Tree,
+    version: i32,
 }
 
 pub struct Server {
@@ -34,6 +35,13 @@ fn to_position(point: &tree_sitter::Point) -> Position {
     Position {
         line: point.row as u32,
         character: point.column as u32,
+    }
+}
+
+fn to_point(position: &Position) -> tree_sitter::Point {
+    tree_sitter::Point {
+        row: position.line as usize,
+        column: position.character as usize,
     }
 }
 
@@ -210,6 +218,14 @@ fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<
     ret
 }
 
+fn to_input_edit(r: &Range, text: &String) -> InputEdit {
+    todo!("manually compute byte offsets (according to claude??); no alts");
+}
+
+fn byte_offset(text: &String, r: &Position) -> Option<usize> {
+    todo!();
+}
+
 impl Server {
     pub fn new(client: Client, sx: Sender<MsgFromServer>, rx: Receiver<MsgToServer>) -> Self {
         let mut parser = Parser::new();
@@ -239,7 +255,10 @@ impl Server {
                     MsgToServer::Shutdown => break,
                     MsgToServer::DidOpen { url, text, version } => {
                         self.did_open(url, text, version).await
-                    }
+                    },
+                    MsgToServer::DidChange { url, content_changes, version } => {
+                        self.did_change(url, content_changes, version).await
+                    },
                     MsgToServer::DocumentSymbol(url) => self.document_symbol(url).await,
                     MsgToServer::ComposerFiles(composer_files) => {
                         self.read_composer_files(composer_files).await
@@ -266,6 +285,7 @@ impl Server {
                     FileData {
                         contents: text,
                         tree,
+                        version,
                     },
                 );
             }
@@ -280,8 +300,83 @@ impl Server {
         }
     }
 
+    async fn did_change(&mut self, url: Url, content_changes: Vec<TextDocumentContentChangeEvent>, version: i32) {
+        match self.file_trees.get_mut(&url) {
+            Some(entry) => {
+                if entry.version >= version {
+                    self.client
+                        .log_message(
+                            MessageType::LOG,
+                            format!("didChange tried to change same version for file `{}`", &url),
+                        )
+                        .await;
+                    return;
+                }
+
+                entry.version = version;
+                for change in content_changes {
+                    if let Some(r) = change.range {
+                        if let (Some(start_byte), Some(end_byte)) = (byte_offset(&change.text, &r.start), byte_offset(&change.text, &r.end)) {
+                            let input_edit = InputEdit {
+                                start_byte,
+                                old_end_byte: end_byte,
+                                new_end_byte: change.text.len(),
+                                start_position: to_point(&r.start),
+                                old_end_position: to_point(&r.end),
+                                new_end_position: {
+                                    let mut row = r.start.line as usize;
+                                    let mut column = r.start.character as usize;
+
+                                    for c in change.text.chars() {
+                                        if c == '\n' {
+                                            row += 1;
+                                            column = 0;
+                                        } else {
+                                            column += 1;
+                                        }
+                                    }
+
+                                    tree_sitter::Point {
+                                        row,
+                                        column,
+                                    }
+                                },
+                            };
+                            entry.tree.edit(&input_edit);
+                            entry.contents.replace_range(start_byte..end_byte, &change.text);
+                        }
+                    } else {
+                        entry.contents = change.text.clone();
+                    }
+
+                    match self.parser.parse(&entry.contents, None) {
+                        Some(tree) => {
+                            entry.tree = tree;
+                        },
+                        None => {
+                            self.client
+                                .log_message(
+                                    MessageType::ERROR,
+                                    "could not parse change",
+                                )
+                                .await;
+                            },
+                    }
+                }
+            },
+            None => {
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!("didChange event triggered without didOpen for file `{}`", &url),
+                    )
+                    .await;
+                },
+        }
+    }
+
     async fn document_symbol(&mut self, url: Url) {
-        if let Some(FileData { contents, tree }) = self.file_trees.get(&url) {
+        if let Some(FileData { contents, tree, .. }) = self.file_trees.get(&url) {
             if let Err(e) = self
                 .sender_to_backend
                 .send(MsgFromServer::NestedSymbols(document_symbols(

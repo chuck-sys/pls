@@ -141,6 +141,15 @@ impl LanguageServer for Backend {
         .await;
     }
 
+    async fn did_change(&self, data: DidChangeTextDocumentParams) {
+        self.send(MsgToServer::DidChange {
+            url: data.text_document.uri,
+            version: data.text_document.version,
+            content_changes: data.content_changes,
+        })
+        .await;
+    }
+
     async fn document_symbol(
         &self,
         data: DocumentSymbolParams,

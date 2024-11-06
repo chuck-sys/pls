@@ -9,6 +9,11 @@ pub enum MsgToServer {
         text: String,
         version: i32,
     },
+    DidChange {
+        url: Url,
+        content_changes: Vec<TextDocumentContentChangeEvent>,
+        version: i32,
+    },
     DocumentSymbol(Url),
     Shutdown,
 }
