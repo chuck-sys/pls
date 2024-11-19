@@ -20,7 +20,7 @@ impl Backend {
         let (sender_to_server, receiver_from_backend) = async_channel::unbounded();
         let mut server =
             crate::server::Server::new(client.clone(), sender_to_backend, receiver_from_backend);
-        std::thread::spawn(move || async move {
+        tokio::spawn(async move {
             server.serve().await;
         });
 
@@ -32,7 +32,8 @@ impl Backend {
     }
 
     pub async fn send(&self, msg: MsgToServer) {
-        if let Err(x) = self.sender_to_server.send(msg).await {
+        if let Err(x) = self.sender_to_server.send(msg.clone()).await {
+            self.client.log_message(MessageType::ERROR, msg).await;
             self.client.log_message(MessageType::ERROR, x).await;
         }
     }
@@ -110,7 +111,11 @@ impl LanguageServer for Backend {
         self.send(MsgToServer::ComposerFiles(composer_files)).await;
 
         Ok(InitializeResult {
-            capabilities: ServerCapabilities::default(),
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::INCREMENTAL)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                ..ServerCapabilities::default()
+            },
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),

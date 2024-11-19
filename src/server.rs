@@ -152,7 +152,7 @@ fn document_symbols_class_decl(
                 if let Some(prop_docsym) = document_symbols_property_decl(uri, &cursor.node(), file_contents) {
                     symbols.push(prop_docsym);
                 }
-            } else if kind == "{" || kind == "}" {
+            } else if kind == "{" || kind == "}" || kind == "comment" {
                 // ignore these
             } else if kind == "method_declaration" {
                 if let Some(name_node) = cursor.node().child_by_field_name("name") {
@@ -241,12 +241,8 @@ impl Server {
     }
 
     pub async fn serve(&mut self) {
-        self.client
-            .log_message(MessageType::LOG, "starting to serve")
-            .await;
-
         loop {
-            match self.receiver_from_backend.recv_blocking() {
+            match self.receiver_from_backend.recv().await {
                 Ok(msg) => match msg {
                     MsgToServer::Shutdown => break,
                     MsgToServer::DidOpen { url, text, version } => {
