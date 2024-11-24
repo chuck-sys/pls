@@ -218,8 +218,43 @@ fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<
     ret
 }
 
+/// Get byte offset given some row and column position in a file.
+///
+/// For example, line 1 character 1 should have offset of 0 (0-indexing).
+///
+/// Return None if the position is invalid (i.e. not in the file, out of range of current line,
+/// etc.)
 fn byte_offset(text: &String, r: &Position) -> Option<usize> {
-    todo!();
+    if r.character == 0 {
+        return None;
+    }
+
+    let line = r.line as usize;
+    // start on the zeroth, not the first, because that's how offsets work
+    let character = r.character as usize - 1;
+    let mut current_offset = 0usize;
+
+    for (line_text, line_num) in text.lines().zip(1..=line) {
+        if line_num == line {
+            if character > line_text.len() {
+                return None;
+            } else {
+                return Some(current_offset + character);
+            }
+        } else {
+            let newline_offset = current_offset + line_text.len();
+            // assume only two types of newlines exist: `\n` and `\r\n`
+            let newline_num_bytes = if text[newline_offset..].starts_with("\n") {
+                1
+            } else {
+                2
+            };
+
+            current_offset += line_text.len() + newline_num_bytes;
+        }
+    }
+
+    None
 }
 
 impl Server {
@@ -408,10 +443,9 @@ mod test {
     use tree_sitter::Parser;
 
     use super::document_symbols;
+    use super::byte_offset;
 
-    #[test]
-    fn test_get_symbols() {
-        let source = "<?php
+    const SOURCE : &'static str = "<?php
             class Whatever {
                 public int $x = 12;
                 public function foo(int $bar): void
@@ -434,15 +468,56 @@ mod test {
                 {
                 }
             }";
+
+    #[test]
+    fn test_valid_byte_offsets() {
+        let valids = [
+            (Position {
+                line: 1,
+                character: 1,
+            }, 0usize),
+            (Position {
+                line: 2,
+                character: 1,
+            }, 6usize),
+        ];
+
+        let s = SOURCE.to_string();
+        for (pos, expected) in valids {
+            assert_eq!(expected, byte_offset(&s, &pos).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_invalid_byte_offsets() {
+        let invalids = [
+            Position {
+                line: 200,
+                character: 10,
+            },
+            Position {
+                line: 1,
+                character: 100,
+            },
+        ];
+
+        let s = SOURCE.to_string();
+        for invalid_position in invalids {
+            assert_eq!(None, byte_offset(&s, &invalid_position));
+        }
+    }
+
+    #[test]
+    fn test_get_symbols() {
         let mut parser = Parser::new();
         parser
             .set_language(&tree_sitter_php::language_php())
             .expect("error loading PHP grammar");
 
-        let tree = parser.parse(source, None).unwrap();
+        let tree = parser.parse(SOURCE, None).unwrap();
         let root_node = tree.root_node();
         let uri = Url::from_file_path("/home/file.php").unwrap();
-        let actual_symbols = document_symbols(&uri, &root_node, &source.to_string());
+        let actual_symbols = document_symbols(&uri, &root_node, &SOURCE.to_string());
         assert_eq!(2, actual_symbols.len());
         assert_eq!("Whatever", &actual_symbols[0].name);
         assert_eq!("Another", &actual_symbols[1].name);
