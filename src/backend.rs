@@ -112,7 +112,9 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::INCREMENTAL)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::INCREMENTAL,
+                )),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
@@ -165,7 +167,7 @@ impl LanguageServer for Backend {
         match self.recv().await {
             Some(MsgFromServer::NestedSymbols(symbols)) => {
                 Ok(Some(DocumentSymbolResponse::Nested(symbols)))
-            },
+            }
             _ => Ok(None),
         }
     }

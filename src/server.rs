@@ -3,7 +3,7 @@ use tower_lsp::Client;
 
 use async_channel::{Receiver, Sender};
 
-use tree_sitter::{Node, Parser, Tree, InputEdit};
+use tree_sitter::{InputEdit, Node, Parser, Tree};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -127,7 +127,11 @@ fn document_symbols_method_decl(
     let mut symbols = vec![];
 
     if let Some(method_parameters_node) = method_node.child_by_field_name("parameters") {
-        symbols.extend(document_symbols_method_params_decl(uri, &method_parameters_node, file_contents));
+        symbols.extend(document_symbols_method_params_decl(
+            uri,
+            &method_parameters_node,
+            file_contents,
+        ));
     }
 
     symbols
@@ -149,7 +153,9 @@ fn document_symbols_class_decl(
         loop {
             let kind = cursor.node().kind();
             if kind == "property_declaration" {
-                if let Some(prop_docsym) = document_symbols_property_decl(uri, &cursor.node(), file_contents) {
+                if let Some(prop_docsym) =
+                    document_symbols_property_decl(uri, &cursor.node(), file_contents)
+                {
                     symbols.push(prop_docsym);
                 }
             } else if kind == "{" || kind == "}" || kind == "comment" {
@@ -158,7 +164,11 @@ fn document_symbols_class_decl(
                 if let Some(name_node) = cursor.node().child_by_field_name("name") {
                     let children = document_symbols_method_decl(uri, &cursor.node(), file_contents);
                     let method_name = range_plaintext(file_contents, name_node.range());
-                    let kind = if &method_name == "__constructor" { SymbolKind::CONSTRUCTOR } else { SymbolKind::METHOD };
+                    let kind = if &method_name == "__constructor" {
+                        SymbolKind::CONSTRUCTOR
+                    } else {
+                        SymbolKind::METHOD
+                    };
                     symbols.push(DocumentSymbol {
                         name: method_name,
                         detail: None,
@@ -282,10 +292,12 @@ impl Server {
                     MsgToServer::Shutdown => break,
                     MsgToServer::DidOpen { url, text, version } => {
                         self.did_open(url, text, version).await
-                    },
-                    MsgToServer::DidChange { url, content_changes, version } => {
-                        self.did_change(url, content_changes, version).await
-                    },
+                    }
+                    MsgToServer::DidChange {
+                        url,
+                        content_changes,
+                        version,
+                    } => self.did_change(url, content_changes, version).await,
                     MsgToServer::DocumentSymbol(url) => self.document_symbol(url).await,
                     MsgToServer::ComposerFiles(composer_files) => {
                         self.read_composer_files(composer_files).await
@@ -327,7 +339,12 @@ impl Server {
         }
     }
 
-    async fn did_change(&mut self, url: Url, content_changes: Vec<TextDocumentContentChangeEvent>, version: i32) {
+    async fn did_change(
+        &mut self,
+        url: Url,
+        content_changes: Vec<TextDocumentContentChangeEvent>,
+        version: i32,
+    ) {
         match self.file_trees.get_mut(&url) {
             Some(entry) => {
                 if entry.version >= version {
@@ -343,7 +360,10 @@ impl Server {
                 entry.version = version;
                 for change in content_changes {
                     if let Some(r) = change.range {
-                        if let (Some(start_byte), Some(end_byte)) = (byte_offset(&change.text, &r.start), byte_offset(&change.text, &r.end)) {
+                        if let (Some(start_byte), Some(end_byte)) = (
+                            byte_offset(&change.text, &r.start),
+                            byte_offset(&change.text, &r.end),
+                        ) {
                             let input_edit = InputEdit {
                                 start_byte,
                                 old_end_byte: end_byte,
@@ -363,14 +383,13 @@ impl Server {
                                         }
                                     }
 
-                                    tree_sitter::Point {
-                                        row,
-                                        column,
-                                    }
+                                    tree_sitter::Point { row, column }
                                 },
                             };
                             entry.tree.edit(&input_edit);
-                            entry.contents.replace_range(start_byte..end_byte, &change.text);
+                            entry
+                                .contents
+                                .replace_range(start_byte..end_byte, &change.text);
                         }
                     } else {
                         entry.contents = change.text.clone();
@@ -379,26 +398,26 @@ impl Server {
                     match self.parser.parse(&entry.contents, None) {
                         Some(tree) => {
                             entry.tree = tree;
-                        },
+                        }
                         None => {
                             self.client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    "could not parse change",
-                                )
+                                .log_message(MessageType::ERROR, "could not parse change")
                                 .await;
-                            },
+                        }
                     }
                 }
-            },
+            }
             None => {
                 self.client
                     .log_message(
                         MessageType::ERROR,
-                        format!("didChange event triggered without didOpen for file `{}`", &url),
+                        format!(
+                            "didChange event triggered without didOpen for file `{}`",
+                            &url
+                        ),
                     )
                     .await;
-                },
+            }
         }
     }
 
@@ -442,10 +461,10 @@ mod test {
     use tower_lsp::lsp_types::*;
     use tree_sitter::Parser;
 
-    use super::document_symbols;
     use super::byte_offset;
+    use super::document_symbols;
 
-    const SOURCE : &'static str = "<?php
+    const SOURCE: &'static str = "<?php
             class Whatever {
                 public int $x = 12;
                 public function foo(int $bar): void
@@ -472,14 +491,20 @@ mod test {
     #[test]
     fn test_valid_byte_offsets() {
         let valids = [
-            (Position {
-                line: 1,
-                character: 1,
-            }, 0usize),
-            (Position {
-                line: 2,
-                character: 1,
-            }, 6usize),
+            (
+                Position {
+                    line: 1,
+                    character: 1,
+                },
+                0usize,
+            ),
+            (
+                Position {
+                    line: 2,
+                    character: 1,
+                },
+                6usize,
+            ),
         ];
 
         let s = SOURCE.to_string();
@@ -525,14 +550,67 @@ mod test {
         assert_eq!("$x", &actual_symbols[0].children.as_ref().unwrap()[0].name);
         assert_eq!("foo", &actual_symbols[0].children.as_ref().unwrap()[1].name);
         assert_eq!("fee", &actual_symbols[0].children.as_ref().unwrap()[2].name);
-        assert_eq!(1, actual_symbols[0].children.as_ref().unwrap()[1].children.as_ref().unwrap().len());
-        assert_eq!("$bar", &actual_symbols[0].children.as_ref().unwrap()[1].children.as_ref().unwrap()[0].name);
-        assert_eq!(2, actual_symbols[0].children.as_ref().unwrap()[2].children.as_ref().unwrap().len());
-        assert_eq!("$sound", &actual_symbols[0].children.as_ref().unwrap()[2].children.as_ref().unwrap()[0].name);
-        assert_eq!("$down", &actual_symbols[0].children.as_ref().unwrap()[2].children.as_ref().unwrap()[1].name);
-        assert_eq!("?array $down", actual_symbols[0].children.as_ref().unwrap()[2].children.as_ref().unwrap()[1].detail.as_ref().unwrap());
+        assert_eq!(
+            1,
+            actual_symbols[0].children.as_ref().unwrap()[1]
+                .children
+                .as_ref()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            "$bar",
+            &actual_symbols[0].children.as_ref().unwrap()[1]
+                .children
+                .as_ref()
+                .unwrap()[0]
+                .name
+        );
+        assert_eq!(
+            2,
+            actual_symbols[0].children.as_ref().unwrap()[2]
+                .children
+                .as_ref()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            "$sound",
+            &actual_symbols[0].children.as_ref().unwrap()[2]
+                .children
+                .as_ref()
+                .unwrap()[0]
+                .name
+        );
+        assert_eq!(
+            "$down",
+            &actual_symbols[0].children.as_ref().unwrap()[2]
+                .children
+                .as_ref()
+                .unwrap()[1]
+                .name
+        );
+        assert_eq!(
+            "?array $down",
+            actual_symbols[0].children.as_ref().unwrap()[2]
+                .children
+                .as_ref()
+                .unwrap()[1]
+                .detail
+                .as_ref()
+                .unwrap()
+        );
         assert_eq!(2, actual_symbols[1].children.as_ref().unwrap().len());
-        assert_eq!("private int $y = 3;", actual_symbols[1].children.as_ref().unwrap()[0].detail.as_ref().unwrap());
-        assert_eq!(SymbolKind::CONSTRUCTOR, actual_symbols[1].children.as_ref().unwrap()[1].kind);
+        assert_eq!(
+            "private int $y = 3;",
+            actual_symbols[1].children.as_ref().unwrap()[0]
+                .detail
+                .as_ref()
+                .unwrap()
+        );
+        assert_eq!(
+            SymbolKind::CONSTRUCTOR,
+            actual_symbols[1].children.as_ref().unwrap()[1].kind
+        );
     }
 }

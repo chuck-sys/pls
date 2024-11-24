@@ -1,7 +1,7 @@
 use tower_lsp::lsp_types::*;
 
-use std::path::PathBuf;
 use std::fmt;
+use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum MsgToServer {
@@ -25,7 +25,11 @@ impl fmt::Display for MsgToServer {
         match self {
             MsgToServer::ComposerFiles(_) => write!(f, "ComposerFiles"),
             MsgToServer::DidOpen { url, text, version } => write!(f, "DidOpen"),
-            MsgToServer::DidChange { url, content_changes, version } => write!(f, "DidChange"),
+            MsgToServer::DidChange {
+                url,
+                content_changes,
+                version,
+            } => write!(f, "DidChange"),
             MsgToServer::DocumentSymbol(_) => write!(f, "DocumentSymbol"),
             MsgToServer::Shutdown => write!(f, "Shutdown"),
         }
