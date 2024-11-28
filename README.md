@@ -7,3 +7,11 @@
 # Current features
 
 - `textDocument/documentSymbol`
+
+# Dev
+
+```console
+$ git submodule init
+$ git submodule update
+$ cargo test
+```
