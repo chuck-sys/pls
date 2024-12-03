@@ -4,7 +4,7 @@ use std::str::FromStr;
 /**
  * A PHP namespace that starts from the root.
  */
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct PhpNamespace(Vec<String>);
 
 impl PhpNamespace {

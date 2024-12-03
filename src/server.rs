@@ -7,6 +7,9 @@ use tree_sitter::{InputEdit, Node, Parser, Tree};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::fs::File;
+use std::io::BufReader;
+use std::str::FromStr;
 
 use crate::msg::{MsgFromServer, MsgToServer};
 use crate::php_namespace::PhpNamespace;
@@ -309,11 +312,58 @@ impl Server {
     }
 
     async fn read_composer_files(&mut self, composer_files: Vec<PathBuf>) {
-        composer_files.iter().for_each(|file| {
-            if !file.exists() {
+        for path in composer_files {
+            if !path.exists() {
                 return;
             }
-        });
+
+            let mut task = |path| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                let file = File::open(path)?;
+                let reader = BufReader::new(file);
+
+                let v: serde_json::Value = serde_json::from_reader(reader)?;
+                if let serde_json::Value::Object(autoload) = &v["autoload"] {
+                    if let serde_json::Value::Object(psr4) = &autoload["psr-4"] {
+                        for (ns, dir) in psr4 {
+                            let namespace = PhpNamespace::from_str(ns).unwrap();
+                            match dir {
+                                serde_json::Value::Array(dirs) => {
+                                    let mut paths = vec![];
+                                    for x in dirs {
+                                        if let serde_json::Value::String(dir) = x {
+                                            if let Ok(path) = PathBuf::from_str(dir) {
+                                                paths.push(path);
+                                            }
+                                        }
+                                    }
+
+                                    if paths.len() > 0 {
+                                        self.namespace_to_dir.insert(namespace, paths);
+                                    }
+                                },
+                                serde_json::Value::String(dir) => {
+                                    let dir = PathBuf::from_str(dir)?;
+                                    self.namespace_to_dir.insert(namespace, vec![dir]);
+                                },
+                                _ => {},
+                            }
+                        }
+                    }
+
+                    if let serde_json::Value::Object(psr0) = &autoload["psr-0"] {
+                    }
+
+                    if let serde_json::Value::Array(files) = &autoload["files"] {
+                    }
+                }
+
+                Ok(())
+            };
+
+            if let Err(e) = task(path) {
+                self.client.log_message(MessageType::ERROR, e).await;
+            }
+        }
     }
 
     async fn did_open(&mut self, url: Url, text: String, version: i32) {
