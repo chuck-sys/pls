@@ -1,4 +1,4 @@
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::str::FromStr;
+use std::error::Error;
 
 use crate::php_namespace::PhpNamespace;
 
@@ -292,11 +293,11 @@ impl Backend {
         }
     }
 
-    async fn read_composer_file(&self, composer_file: PathBuf) -> std::result::Result<(), Box<dyn std::error::Error + Send>> {
-        let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+    async fn read_composer_file(&self, composer_file: PathBuf) -> Result<(), Box<dyn Error + Send>> {
+        let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         let reader = BufReader::new(file);
 
-        let v: serde_json::Value = serde_json::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+        let v: serde_json::Value = serde_json::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         if let serde_json::Value::Object(autoload) = &v["autoload"] {
             if let serde_json::Value::Object(psr4) = &autoload["psr-4"] {
                 let mut ns_to_dir_guard = self.ns_to_dir.write().await;
@@ -318,7 +319,7 @@ impl Backend {
                             }
                         },
                         serde_json::Value::String(dir) => {
-                            let dir = PathBuf::from_str(dir).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+                            let dir = PathBuf::from_str(dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
                             ns_to_dir_guard.insert(namespace, vec![dir]);
                         },
                         _ => {},
@@ -353,7 +354,7 @@ impl Backend {
  *
  * Please remember to check existence because there is a chance that it gets deleted.
  */
-fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> Result<Vec<PathBuf>> {
+fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec<PathBuf>> {
     let mut composer_files = vec![];
     for folder in workspace_folders {
         if let Ok(path) = folder.uri.to_file_path() {
@@ -373,7 +374,7 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> Result<Vec<Pa
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
         let mut workspace_folders = params.workspace_folders.unwrap_or(vec![]);
         if workspace_folders.len() == 0 {
             if let Some(root_uri) = params.root_uri {
@@ -430,7 +431,7 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn shutdown(&self) -> Result<()> {
+    async fn shutdown(&self) -> LspResult<()> {
         self.client
             .log_message(MessageType::LOG, "server thread has shutdown")
             .await;
@@ -544,7 +545,7 @@ impl LanguageServer for Backend {
     async fn document_symbol(
         &self,
         data: DocumentSymbolParams,
-    ) -> Result<Option<DocumentSymbolResponse>> {
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
         let file_trees_guard = self.file_trees.read().await;
         if let Some(FileData { contents, tree, .. }) = file_trees_guard.get(&data.text_document.uri) {
             Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
