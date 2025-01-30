@@ -47,7 +47,6 @@ fn to_range(range: &tree_sitter::Range) -> Range {
 }
 
 fn document_symbols_property_decl(
-    uri: &Url,
     property_node: &Node,
     file_contents: &String,
 ) -> Option<DocumentSymbol> {
@@ -80,7 +79,6 @@ fn document_symbols_property_decl(
 }
 
 fn document_symbols_method_params_decl(
-    uri: &Url,
     params: &Node,
     file_contents: &String,
 ) -> Vec<DocumentSymbol> {
@@ -114,7 +112,6 @@ fn document_symbols_method_params_decl(
 }
 
 fn document_symbols_method_decl(
-    uri: &Url,
     method_node: &Node,
     file_contents: &String,
 ) -> Vec<DocumentSymbol> {
@@ -122,7 +119,6 @@ fn document_symbols_method_decl(
 
     if let Some(method_parameters_node) = method_node.child_by_field_name("parameters") {
         symbols.extend(document_symbols_method_params_decl(
-            uri,
             &method_parameters_node,
             file_contents,
         ));
@@ -132,7 +128,6 @@ fn document_symbols_method_decl(
 }
 
 fn document_symbols_class_decl(
-    uri: &Url,
     class_node: &Node,
     file_contents: &String,
 ) -> Vec<DocumentSymbol> {
@@ -148,7 +143,7 @@ fn document_symbols_class_decl(
             let kind = cursor.node().kind();
             if kind == "property_declaration" {
                 if let Some(prop_docsym) =
-                    document_symbols_property_decl(uri, &cursor.node(), file_contents)
+                    document_symbols_property_decl(&cursor.node(), file_contents)
                 {
                     symbols.push(prop_docsym);
                 }
@@ -156,7 +151,7 @@ fn document_symbols_class_decl(
                 // ignore these
             } else if kind == "method_declaration" {
                 if let Some(name_node) = cursor.node().child_by_field_name("name") {
-                    let children = document_symbols_method_decl(uri, &cursor.node(), file_contents);
+                    let children = document_symbols_method_decl(&cursor.node(), file_contents);
                     let method_name = range_plaintext(file_contents, name_node.range());
                     let kind = if &method_name == "__constructor" {
                         SymbolKind::CONSTRUCTOR
@@ -187,7 +182,7 @@ fn document_symbols_class_decl(
     symbols
 }
 
-fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
+fn document_symbols(root_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
     let mut ret = Vec::new();
     let mut cursor = root_node.walk();
 
@@ -200,7 +195,7 @@ fn document_symbols(uri: &Url, root_node: &Node, file_contents: &String) -> Vec<
         // DFS
         if kind == "class_declaration" {
             if let Some(name_node) = cursor.node().child_by_field_name("name") {
-                let children = document_symbols_class_decl(uri, &cursor.node(), file_contents);
+                let children = document_symbols_class_decl(&cursor.node(), file_contents);
                 ret.push(DocumentSymbol {
                     name: range_plaintext(file_contents, name_node.range()),
                     detail: None,
@@ -271,10 +266,11 @@ struct BackendData {
 pub struct Backend {
     client: Client,
 
-    parser: RwLock<Parser>,
+    data: RwLock<BackendData>,
+    // parser: RwLock<Parser>,
 
-    file_trees: RwLock<HashMap<Url, FileData>>,
-    ns_to_dir: RwLock<HashMap<PhpNamespace, Vec<PathBuf>>>,
+    // file_trees: RwLock<HashMap<Url, FileData>>,
+    // ns_to_dir: RwLock<HashMap<PhpNamespace, Vec<PathBuf>>>,
 }
 
 impl Backend {
@@ -549,7 +545,6 @@ impl LanguageServer for Backend {
         let file_trees_guard = self.file_trees.read().await;
         if let Some(FileData { contents, tree, .. }) = file_trees_guard.get(&data.text_document.uri) {
             Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
-                            &data.text_document.uri,
                             &tree.root_node(),
                             contents,
             ))))
@@ -644,8 +639,7 @@ mod test {
 
         let tree = parser.parse(SOURCE, None).unwrap();
         let root_node = tree.root_node();
-        let uri = Url::from_file_path("/home/file.php").unwrap();
-        let actual_symbols = document_symbols(&uri, &root_node, &SOURCE.to_string());
+        let actual_symbols = document_symbols(&root_node, &SOURCE.to_string());
         assert_eq!(2, actual_symbols.len());
         assert_eq!("Whatever", &actual_symbols[0].name);
         assert_eq!("Another", &actual_symbols[1].name);
