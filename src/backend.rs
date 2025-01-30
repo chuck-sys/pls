@@ -263,29 +263,32 @@ struct BackendData {
     ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
 }
 
-pub struct Backend {
-    client: Client,
-
-    data: RwLock<BackendData>,
-    // parser: RwLock<Parser>,
-
-    // file_trees: RwLock<HashMap<Url, FileData>>,
-    // ns_to_dir: RwLock<HashMap<PhpNamespace, Vec<PathBuf>>>,
-}
-
-impl Backend {
-    pub fn new(client: Client) -> Self {
+impl BackendData {
+    fn new() -> Self {
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_php::language_php())
             .expect("error loading PHP grammar");
 
         Self {
+            parser,
+            file_trees: HashMap::new(),
+            ns_to_dir: HashMap::new(),
+        }
+    }
+}
+
+pub struct Backend {
+    client: Client,
+
+    data: RwLock<BackendData>,
+}
+
+impl Backend {
+    pub fn new(client: Client) -> Self {
+        Self {
             client,
 
-            parser: RwLock::new(parser),
-
-            file_trees: RwLock::new(HashMap::new()),
-            ns_to_dir: RwLock::new(HashMap::new()),
+            data: RwLock::new(BackendData::new()),
         }
     }
 
@@ -296,7 +299,7 @@ impl Backend {
         let v: serde_json::Value = serde_json::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         if let serde_json::Value::Object(autoload) = &v["autoload"] {
             if let serde_json::Value::Object(psr4) = &autoload["psr-4"] {
-                let mut ns_to_dir_guard = self.ns_to_dir.write().await;
+                let mut data_guard = self.data.write().await;
                 for (ns, dir) in psr4 {
                     let namespace = PhpNamespace::from_str(ns).unwrap();
                     match dir {
@@ -311,12 +314,12 @@ impl Backend {
                             }
 
                             if paths.len() > 0 {
-                                ns_to_dir_guard.insert(namespace, paths);
+                                data_guard.ns_to_dir.insert(namespace, paths);
                             }
                         },
                         serde_json::Value::String(dir) => {
                             let dir = PathBuf::from_str(dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-                            ns_to_dir_guard.insert(namespace, vec![dir]);
+                            data_guard.ns_to_dir.insert(namespace, vec![dir]);
                         },
                         _ => {},
                     }
@@ -435,11 +438,10 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
-        let mut parser_guard = self.parser.write().await;
-        let mut file_trees_guard = self.file_trees.write().await;
-        match parser_guard.parse(&data.text_document.text, None) {
+        let mut data_guard = self.data.write().await;
+        match data_guard.parser.parse(&data.text_document.text, None) {
             Some(tree) => {
-                file_trees_guard.insert(
+                data_guard.file_trees.insert(
                     data.text_document.uri,
                     FileData {
                         contents: data.text_document.text,
@@ -460,9 +462,11 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, data: DidChangeTextDocumentParams) {
-        let mut parser_guard = self.parser.write().await;
-        let mut file_trees_guard = self.file_trees.write().await;
-        match file_trees_guard.get_mut(&data.text_document.uri) {
+        // https://users.rust-lang.org/t/rwlock-is-confusing-me-and-or-mutable-borrow-counting/120492/2
+        // we gently nudge the borrow checker to give us the actual &mut BackendData instead of
+        // going through a DerefMut.
+        let data_guard = &mut *self.data.write().await;
+        match data_guard.file_trees.get_mut(&data.text_document.uri) {
             Some(entry) => {
                 if entry.version >= data.text_document.version {
                     self.client
@@ -512,7 +516,7 @@ impl LanguageServer for Backend {
                         entry.contents = change.text.clone();
                     }
 
-                    match parser_guard.parse(&entry.contents, None) {
+                    match data_guard.parser.parse(&entry.contents, None) {
                         Some(tree) => {
                             entry.tree = tree;
                         }
@@ -542,8 +546,8 @@ impl LanguageServer for Backend {
         &self,
         data: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
-        let file_trees_guard = self.file_trees.read().await;
-        if let Some(FileData { contents, tree, .. }) = file_trees_guard.get(&data.text_document.uri) {
+        let data_guard = self.data.read().await;
+        if let Some(FileData { contents, tree, .. }) = data_guard.file_trees.get(&data.text_document.uri) {
             Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
                             &tree.root_node(),
                             contents,
