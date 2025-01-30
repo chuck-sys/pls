@@ -6,12 +6,12 @@ use tree_sitter::{InputEdit, Node, Parser, Tree};
 
 use tokio::sync::RwLock;
 
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
+use std::path::PathBuf;
 use std::str::FromStr;
-use std::error::Error;
 
 use crate::php_namespace::PhpNamespace;
 
@@ -111,10 +111,7 @@ fn document_symbols_method_params_decl(
     }
 }
 
-fn document_symbols_method_decl(
-    method_node: &Node,
-    file_contents: &String,
-) -> Vec<DocumentSymbol> {
+fn document_symbols_method_decl(method_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
     let mut symbols = vec![];
 
     if let Some(method_parameters_node) = method_node.child_by_field_name("parameters") {
@@ -127,10 +124,7 @@ fn document_symbols_method_decl(
     symbols
 }
 
-fn document_symbols_class_decl(
-    class_node: &Node,
-    file_contents: &String,
-) -> Vec<DocumentSymbol> {
+fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
     let mut symbols = vec![];
 
     if let Some(decl_list) = class_node.child_by_field_name("body") {
@@ -266,7 +260,8 @@ struct BackendData {
 impl BackendData {
     fn new() -> Self {
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_php::language_php())
+        parser
+            .set_language(&tree_sitter_php::language_php())
             .expect("error loading PHP grammar");
 
         Self {
@@ -292,11 +287,15 @@ impl Backend {
         }
     }
 
-    async fn read_composer_file(&self, composer_file: PathBuf) -> Result<(), Box<dyn Error + Send>> {
+    async fn read_composer_file(
+        &self,
+        composer_file: PathBuf,
+    ) -> Result<(), Box<dyn Error + Send>> {
         let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         let reader = BufReader::new(file);
 
-        let v: serde_json::Value = serde_json::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        let v: serde_json::Value =
+            serde_json::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         if let serde_json::Value::Object(autoload) = &v["autoload"] {
             if let serde_json::Value::Object(psr4) = &autoload["psr-4"] {
                 let mut data_guard = self.data.write().await;
@@ -316,12 +315,13 @@ impl Backend {
                             if paths.len() > 0 {
                                 data_guard.ns_to_dir.insert(namespace, paths);
                             }
-                        },
+                        }
                         serde_json::Value::String(dir) => {
-                            let dir = PathBuf::from_str(dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+                            let dir = PathBuf::from_str(dir)
+                                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
                             data_guard.ns_to_dir.insert(namespace, vec![dir]);
-                        },
-                        _ => {},
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -345,7 +345,6 @@ impl Backend {
             }
         }
     }
-
 }
 
 /**
@@ -472,7 +471,10 @@ impl LanguageServer for Backend {
                     self.client
                         .log_message(
                             MessageType::LOG,
-                            format!("didChange tried to change same version for file `{}`", &data.text_document.uri),
+                            format!(
+                                "didChange tried to change same version for file `{}`",
+                                &data.text_document.uri
+                            ),
                         )
                         .await;
                     return;
@@ -547,10 +549,12 @@ impl LanguageServer for Backend {
         data: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
         let data_guard = self.data.read().await;
-        if let Some(FileData { contents, tree, .. }) = data_guard.file_trees.get(&data.text_document.uri) {
+        if let Some(FileData { contents, tree, .. }) =
+            data_guard.file_trees.get(&data.text_document.uri)
+        {
             Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
-                            &tree.root_node(),
-                            contents,
+                &tree.root_node(),
+                contents,
             ))))
         } else {
             Ok(None)
