@@ -6,12 +6,15 @@ use tree_sitter::{InputEdit, Node, Parser, Tree};
 
 use tokio::sync::RwLock;
 
+use regex::Regex;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use crate::php_namespace::PhpNamespace;
 
@@ -23,6 +26,36 @@ struct FileData {
 
 fn range_plaintext(file_contents: &String, range: tree_sitter::Range) -> String {
     file_contents[range.start_byte..range.end_byte].to_owned()
+}
+
+/// Convert character offset into a position.
+///
+/// If the offset is outside the contents given, return the last position of the file.
+fn offset_to_position(contents: &str, mut offset: usize) -> Position {
+    let mut line = 0;
+    let mut character = 0;
+    for c in contents.chars() {
+        if offset == 0 {
+            return Position {
+                line,
+                character,
+            };
+        }
+
+        if c == '\n' {
+            line += 1;
+            character = 0;
+        } else {
+            character += 1;
+        }
+
+        offset -= 1;
+    }
+
+    Position {
+        line,
+        character,
+    }
 }
 
 fn to_position(point: &tree_sitter::Point) -> Position {
@@ -347,6 +380,43 @@ impl Backend {
     }
 }
 
+fn phpecho_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap()
+    })
+}
+
+fn changes_phpecho(uri: &Url, file_data: &FileData) -> Option<DocumentChanges> {
+    let mut edits = vec![];
+    let text_document = OptionalVersionedTextDocumentIdentifier {
+        uri: uri.clone(),
+        version: Some(file_data.version),
+    };
+
+    let re = phpecho_re();
+    for captures in re.captures_iter(&file_data.contents) {
+        let m = captures.get(0).unwrap();
+        // match end is always 1 after, so we have to subtract 1
+        let range = Range {
+            start: offset_to_position(&file_data.contents, m.start()),
+            end: offset_to_position(&file_data.contents, m.end() - 1),
+        };
+
+        let trimmed = captures.get(1).unwrap().as_str().trim_end();
+        let new_text = format!("<?= {} ?>", trimmed);
+        edits.push(OneOf::Left(TextEdit {
+            range,
+            new_text,
+        }));
+    }
+
+    Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+        text_document,
+        edits,
+    }]))
+}
+
 /**
  * Composer files paths should always exist.
  *
@@ -560,6 +630,30 @@ impl LanguageServer for Backend {
             Ok(None)
         }
     }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> LspResult<Option<CodeActionResponse>> {
+        let mut responses = vec![];
+        let data_guard = self.data.read().await;
+        if let Some(file_data) = data_guard.file_trees.get(&params.text_document.uri) {
+            if file_data.contents.contains("<?php echo ") {
+                let document_changes = changes_phpecho(&params.text_document.uri, &file_data);
+                let action = CodeAction {
+                    title: "Convert `<?php echo ` into `<?=`".to_string(),
+                    kind: Some(CodeActionKind::SOURCE),
+                    edit: Some(WorkspaceEdit {
+                        document_changes,
+                        ..WorkspaceEdit::default()
+                    }),
+                    ..CodeAction::default()
+                };
+                responses.push(CodeActionOrCommand::CodeAction(action));
+            }
+        }
+        Ok(Some(responses))
+    }
 }
 
 #[cfg(test)]
@@ -569,6 +663,66 @@ mod test {
 
     use super::byte_offset;
     use super::document_symbols;
+    use super::changes_phpecho;
+
+    macro_rules! unwrap_enum {
+        ($value:expr, $variant:path) => {
+            match $value {
+                $variant(inner) => inner,
+                _ => unreachable!(),
+            }
+        };
+    }
+
+    fn parser() -> Parser {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_php::language_php())
+            .expect("error loading PHP grammar");
+
+        parser
+    }
+
+    #[test]
+    fn test_will_change_phpechos() {
+        use super::FileData;
+
+        let contents = "<?php   echo   addslashes('evil evil')  ;    ?>
+
+
+            <?php echo 34; ?>";
+        let tree = parser().parse(contents, None).unwrap();
+        let uri = Url::parse("https://google.ca").unwrap();
+        let version = 1;
+        let file_data = FileData {
+            contents: contents.to_string(),
+            tree,
+            version,
+        };
+
+        let edits = unwrap_enum!(changes_phpecho(&uri, &file_data).unwrap(), DocumentChanges::Edits)[0].edits.clone();
+        let edit1 = unwrap_enum!(&edits[0], OneOf::Left);
+        let edit2 = unwrap_enum!(&edits[1], OneOf::Left);
+
+        assert_eq!(&edit1.new_text, "<?= addslashes('evil evil') ?>");
+        assert_eq!(&edit1.range.start, &Position {
+            line: 0,
+            character: 0,
+        });
+        assert_eq!(&edit1.range.end, &Position {
+            line: 0,
+            character: 46,
+        });
+        assert_eq!(&edit2.new_text, "<?= 34 ?>");
+        assert_eq!(&edit2.range.start, &Position {
+            line: 3,
+            character: 12,
+        });
+        assert_eq!(&edit2.range.end, &Position {
+            line: 3,
+            character: 28,
+        });
+    }
 
     const SOURCE: &'static str = "<?php
             class Whatever {
@@ -640,12 +794,7 @@ mod test {
 
     #[test]
     fn test_get_symbols() {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_php::language_php())
-            .expect("error loading PHP grammar");
-
-        let tree = parser.parse(SOURCE, None).unwrap();
+        let tree = parser().parse(SOURCE, None).unwrap();
         let root_node = tree.root_node();
         let actual_symbols = document_symbols(&root_node, &SOURCE.to_string());
         assert_eq!(2, actual_symbols.len());
