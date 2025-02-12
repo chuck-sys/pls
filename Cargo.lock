@@ -406,8 +406,9 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower-lsp",
- "tree-sitter",
+ "tree-sitter 0.22.6",
  "tree-sitter-php",
+ "tree-sitter-phpdoc",
 ]
 
 [[package]]
@@ -760,6 +761,16 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
+version = "0.20.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e747b1f9b7b931ed39a548c1fae149101497de3c1fc8d9e18c62c1a66c683d3d"
+dependencies = [
+ "cc",
+ "regex",
+]
+
+[[package]]
+name = "tree-sitter"
 version = "0.22.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df7cc499ceadd4dcdf7ec6d4cbc34ece92c3fa07821e287aedecd4416c516dca"
@@ -775,7 +786,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "701096cc0c7c8e5c33ec0be7ea4d7aed971ee07043af5c35581c029805527ac5"
 dependencies = [
  "cc",
- "tree-sitter",
+ "tree-sitter 0.22.6",
+]
+
+[[package]]
+name = "tree-sitter-phpdoc"
+version = "0.1.0"
+source = "git+https://github.com/claytonrcarter/tree-sitter-phpdoc.git#fe3202e468bc17332bec8969f2b50ff1f1da3a46"
+dependencies = [
+ "cc",
+ "tree-sitter 0.20.10",
 ]
 
 [[package]]

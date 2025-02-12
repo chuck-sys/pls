@@ -15,6 +15,7 @@ tokio = { version = "1.39", features = ["full"] }
 tower-lsp = "0.20"
 tree-sitter = "0.22"
 tree-sitter-php = "0.23"
+tree-sitter-phpdoc = { git = "https://github.com/claytonrcarter/tree-sitter-phpdoc.git" }
 
 [build-dependencies]
 cc = "*"

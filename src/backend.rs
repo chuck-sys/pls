@@ -3,6 +3,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use tree_sitter::{InputEdit, Node, Parser, Tree};
+use tree_sitter_php::language_php;
 
 use tokio::sync::RwLock;
 
@@ -294,7 +295,7 @@ impl BackendData {
     fn new() -> Self {
         let mut parser = Parser::new();
         parser
-            .set_language(&tree_sitter_php::language_php())
+            .set_language(&language_php())
             .expect("error loading PHP grammar");
 
         Self {
@@ -667,6 +668,7 @@ impl LanguageServer for Backend {
 mod test {
     use tower_lsp::lsp_types::*;
     use tree_sitter::Parser;
+    use tree_sitter_php::language_php;
 
     use super::byte_offset;
     use super::document_symbols;
@@ -684,7 +686,7 @@ mod test {
     fn parser() -> Parser {
         let mut parser = Parser::new();
         parser
-            .set_language(&tree_sitter_php::language_php())
+            .set_language(&language_php())
             .expect("error loading PHP grammar");
 
         parser
