@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 
 use crate::php_namespace::PhpNamespace;
+use crate::composer::Autoload;
 
 struct FileData {
     contents: String,
@@ -327,46 +328,15 @@ impl Backend {
     ) -> Result<(), Box<dyn Error + Send>> {
         let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         let reader = BufReader::new(file);
+        let autoload = Autoload::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-        let v: serde_json::Value =
-            serde_json::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-        if let serde_json::Value::Object(autoload) = &v["autoload"] {
-            if let serde_json::Value::Object(psr4) = &autoload["psr-4"] {
-                let mut data_guard = self.data.write().await;
-                for (ns, dir) in psr4 {
-                    let namespace = PhpNamespace::from_str(ns).unwrap();
-                    match dir {
-                        serde_json::Value::Array(dirs) => {
-                            let mut paths = vec![];
-                            for x in dirs {
-                                if let serde_json::Value::String(dir) = x {
-                                    if let Ok(path) = PathBuf::from_str(dir) {
-                                        paths.push(path);
-                                    }
-                                }
-                            }
-
-                            if paths.len() > 0 {
-                                data_guard.ns_to_dir.insert(namespace, paths);
-                            }
-                        }
-                        serde_json::Value::String(dir) => {
-                            let dir = PathBuf::from_str(dir)
-                                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-                            data_guard.ns_to_dir.insert(namespace, vec![dir]);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            if let serde_json::Value::Object(psr0) = &autoload["psr-0"] {
-                unimplemented!("composer autoload psr-0");
-            }
-
-            if let serde_json::Value::Array(files) = &autoload["files"] {
-                unimplemented!("composer autoload files");
-            }
+        let mut data_guard = self.data.write().await;
+        for (ns, dirs) in autoload.psr4.into_iter() {
+            data_guard
+                .ns_to_dir
+                .entry(ns)
+                .and_modify(|ref mut e| e.extend_from_slice(&dirs))
+                .or_insert(dirs);
         }
 
         Ok(())

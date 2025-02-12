@@ -4,6 +4,7 @@ use tower_lsp::{LspService, Server};
 
 mod backend;
 mod php_namespace;
+mod composer;
 
 #[tokio::main]
 async fn main() {
