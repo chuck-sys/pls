@@ -16,6 +16,12 @@ pub enum AutoloadError {
     BadPSR4Type,
 }
 
+impl PartialEq for AutoloadError {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_string() == other.to_string()
+    }
+}
+
 impl From<SerdeError> for AutoloadError {
     fn from(value: SerdeError) -> Self {
         Self::BadDeserde(value)
@@ -94,8 +100,10 @@ mod test {
 
     use std::str::FromStr;
     use std::path::PathBuf;
+    use std::io::Cursor;
 
     use super::Autoload;
+    use super::AutoloadError;
     use super::PhpNamespace;
 
     type Object = Map<String, Value>;
@@ -105,6 +113,46 @@ mod test {
             Value::Object(m) => m.clone(),
             _ => panic!("must be a map"),
         }
+    }
+
+    fn to_cursor(v: Value) -> Cursor<Vec<u8>> {
+        Cursor::new(v.to_string().into())
+    }
+
+    #[test]
+    fn test_no_autoload() {
+        let data = to_cursor(json!({
+            "project": "no autoload",
+        }));
+
+        assert_eq!(Autoload::from_reader(data), Err(AutoloadError::NoAutoload));
+    }
+
+    #[test]
+    fn test_no_psr4() {
+        let data = to_cursor(json!({
+            "project": "no psr-4",
+            "autoload": {
+                "psr-0": {},
+            },
+        }));
+
+        assert_eq!(Autoload::from_reader(data), Err(AutoloadError::NoPSR4));
+    }
+
+    #[test]
+    fn test_bad_psr4_type() {
+        let data = to_cursor(json!({
+            "project": "no psr-4",
+            "autoload": {
+                "psr-0": {},
+                "psr-4": [
+                    "haha",
+                ],
+            },
+        }));
+
+        assert_eq!(Autoload::from_reader(data), Err(AutoloadError::BadPSR4Type));
     }
 
     #[test]
