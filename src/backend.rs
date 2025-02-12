@@ -361,10 +361,9 @@ fn changes_phpecho(uri: &Url, file_data: &FileData) -> Option<DocumentChanges> {
     let re = phpecho_re();
     for captures in re.captures_iter(&file_data.contents) {
         let m = captures.get(0).unwrap();
-        // match end is always 1 after, so we have to subtract 1
         let range = Range {
             start: offset_to_position(&file_data.contents, m.start()),
-            end: offset_to_position(&file_data.contents, m.end() - 1),
+            end: offset_to_position(&file_data.contents, m.end()),
         };
 
         let trimmed = captures.get(1).unwrap().as_str().trim_end();
@@ -689,7 +688,7 @@ mod test {
             &edit1.range.end,
             &Position {
                 line: 0,
-                character: 46,
+                character: 47,
             }
         );
         assert_eq!(&edit2.new_text, "<?= 34 ?>");
@@ -704,7 +703,7 @@ mod test {
             &edit2.range.end,
             &Position {
                 line: 3,
-                character: 28,
+                character: 29,
             }
         );
     }
