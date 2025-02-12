@@ -1,10 +1,10 @@
-use serde_json::{Error as SerdeError, Value as SerdeValue, Map as SerdeMap};
+use serde_json::{Error as SerdeError, Map as SerdeMap, Value as SerdeValue};
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::error::Error;
 use std::fmt::Display;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 use crate::php_namespace::PhpNamespace;
 
@@ -39,8 +39,7 @@ impl Display for AutoloadError {
     }
 }
 
-impl Error for AutoloadError {
-}
+impl Error for AutoloadError {}
 
 type PSR4 = HashMap<PhpNamespace, Vec<PathBuf>>;
 
@@ -73,13 +72,12 @@ impl Autoload {
             }
         }
 
-        Self {
-            psr4,
-        }
+        Self { psr4 }
     }
 
     pub fn from_reader<R>(rdr: R) -> Result<Self, AutoloadError>
-        where R: std::io::Read
+    where
+        R: std::io::Read,
     {
         let v: serde_json::Value = serde_json::from_reader(rdr)?;
         let autoload = v.get("autoload").ok_or(AutoloadError::NoAutoload)?;
@@ -95,12 +93,12 @@ impl Autoload {
 
 #[cfg(test)]
 mod test {
-    use serde_json::{Map, Value};
     use serde_json::json;
+    use serde_json::{Map, Value};
 
-    use std::str::FromStr;
-    use std::path::PathBuf;
     use std::io::Cursor;
+    use std::path::PathBuf;
+    use std::str::FromStr;
 
     use super::Autoload;
     use super::AutoloadError;

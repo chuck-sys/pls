@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use crate::php_namespace::PhpNamespace;
 use crate::composer::Autoload;
+use crate::php_namespace::PhpNamespace;
 
 struct FileData {
     contents: String,
@@ -38,10 +38,7 @@ fn offset_to_position(contents: &str, mut offset: usize) -> Position {
     let mut character = 0;
     for c in contents.chars() {
         if offset == 0 {
-            return Position {
-                line,
-                character,
-            };
+            return Position { line, character };
         }
 
         if c == '\n' {
@@ -54,10 +51,7 @@ fn offset_to_position(contents: &str, mut offset: usize) -> Position {
         offset -= 1;
     }
 
-    Position {
-        line,
-        character,
-    }
+    Position { line, character }
 }
 
 fn to_position(point: &tree_sitter::Point) -> Position {
@@ -328,7 +322,8 @@ impl Backend {
     ) -> Result<(), Box<dyn Error + Send>> {
         let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         let reader = BufReader::new(file);
-        let autoload = Autoload::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        let autoload =
+            Autoload::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
         let mut data_guard = self.data.write().await;
         for (ns, dirs) in autoload.psr4.into_iter() {
@@ -353,9 +348,7 @@ impl Backend {
 
 fn phpecho_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap())
 }
 
 fn changes_phpecho(uri: &Url, file_data: &FileData) -> Option<DocumentChanges> {
@@ -376,10 +369,7 @@ fn changes_phpecho(uri: &Url, file_data: &FileData) -> Option<DocumentChanges> {
 
         let trimmed = captures.get(1).unwrap().as_str().trim_end();
         let new_text = format!("<?= {} ?>", trimmed);
-        edits.push(OneOf::Left(TextEdit {
-            range,
-            new_text,
-        }));
+        edits.push(OneOf::Left(TextEdit { range, new_text }));
     }
 
     Some(DocumentChanges::Edits(vec![TextDocumentEdit {
@@ -455,13 +445,15 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
                 document_symbol_provider: Some(OneOf::Left(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
-                    code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
-                    work_done_progress_options: WorkDoneProgressOptions {
-                        work_done_progress: Some(false),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
+                        work_done_progress_options: WorkDoneProgressOptions {
+                            work_done_progress: Some(false),
+                        },
+                        resolve_provider: Some(false),
                     },
-                    resolve_provider: Some(false),
-                })),
+                )),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -609,10 +601,7 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn code_action(
-        &self,
-        params: CodeActionParams,
-    ) -> LspResult<Option<CodeActionResponse>> {
+    async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
         let mut responses = vec![];
         let data_guard = self.data.read().await;
         if let Some(file_data) = data_guard.file_trees.get(&params.text_document.uri) {
@@ -641,8 +630,8 @@ mod test {
     use tree_sitter_php::language_php;
 
     use super::byte_offset;
-    use super::document_symbols;
     use super::changes_phpecho;
+    use super::document_symbols;
 
     macro_rules! unwrap_enum {
         ($value:expr, $variant:path) => {
@@ -679,28 +668,45 @@ mod test {
             version,
         };
 
-        let edits = unwrap_enum!(changes_phpecho(&uri, &file_data).unwrap(), DocumentChanges::Edits)[0].edits.clone();
+        let edits = unwrap_enum!(
+            changes_phpecho(&uri, &file_data).unwrap(),
+            DocumentChanges::Edits
+        )[0]
+        .edits
+        .clone();
         let edit1 = unwrap_enum!(&edits[0], OneOf::Left);
         let edit2 = unwrap_enum!(&edits[1], OneOf::Left);
 
         assert_eq!(&edit1.new_text, "<?= addslashes('evil evil') ?>");
-        assert_eq!(&edit1.range.start, &Position {
-            line: 0,
-            character: 0,
-        });
-        assert_eq!(&edit1.range.end, &Position {
-            line: 0,
-            character: 46,
-        });
+        assert_eq!(
+            &edit1.range.start,
+            &Position {
+                line: 0,
+                character: 0,
+            }
+        );
+        assert_eq!(
+            &edit1.range.end,
+            &Position {
+                line: 0,
+                character: 46,
+            }
+        );
         assert_eq!(&edit2.new_text, "<?= 34 ?>");
-        assert_eq!(&edit2.range.start, &Position {
-            line: 3,
-            character: 12,
-        });
-        assert_eq!(&edit2.range.end, &Position {
-            line: 3,
-            character: 28,
-        });
+        assert_eq!(
+            &edit2.range.start,
+            &Position {
+                line: 3,
+                character: 12,
+            }
+        );
+        assert_eq!(
+            &edit2.range.end,
+            &Position {
+                line: 3,
+                character: 28,
+            }
+        );
     }
 
     const SOURCE: &'static str = "<?php

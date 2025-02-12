@@ -3,8 +3,8 @@ use std::env;
 use tower_lsp::{LspService, Server};
 
 mod backend;
-mod php_namespace;
 mod composer;
+mod php_namespace;
 
 #[tokio::main]
 async fn main() {
