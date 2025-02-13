@@ -507,9 +507,9 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
-        let mut data_guard = self.data.write().await;
         match self.parse_file(&data.text_document.text).await {
             Ok((php_tree, comments_tree)) => {
+                let mut data_guard = self.data.write().await;
                 data_guard.file_trees.insert(
                     data.text_document.uri,
                     FileData {
@@ -628,6 +628,11 @@ impl LanguageServer for Backend {
                 contents,
             ))))
         } else {
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    "documentSymbol could not find any file of this uri",
+                ).await;
             Ok(None)
         }
     }
