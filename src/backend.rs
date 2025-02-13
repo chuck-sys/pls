@@ -2,8 +2,9 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tree_sitter::{InputEdit, Node, Parser, Tree};
+use tree_sitter::{InputEdit, Node, Parser, Tree, Query, QueryError, QueryCursor, StreamingIterator, StreamingIteratorMut};
 use tree_sitter_php::language_php;
+use tree_sitter_phpdoc::language as language_phpdoc;
 
 use tokio::sync::RwLock;
 
@@ -14,7 +15,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::OnceLock;
 
 use crate::composer::Autoload;
@@ -22,7 +22,8 @@ use crate::php_namespace::PhpNamespace;
 
 struct FileData {
     contents: String,
-    tree: Tree,
+    php_tree: Tree,
+    comments_tree: Tree,
     version: i32,
 }
 
@@ -280,7 +281,8 @@ fn byte_offset(text: &String, r: &Position) -> Option<usize> {
 }
 
 struct BackendData {
-    parser: Parser,
+    php_parser: Parser,
+    phpdoc_parser: Parser,
 
     file_trees: HashMap<Url, FileData>,
     ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
@@ -288,13 +290,19 @@ struct BackendData {
 
 impl BackendData {
     fn new() -> Self {
-        let mut parser = Parser::new();
-        parser
+        let mut php_parser = Parser::new();
+        php_parser
             .set_language(&language_php())
             .expect("error loading PHP grammar");
 
+        let mut phpdoc_parser = Parser::new();
+        phpdoc_parser
+            .set_language(&language_phpdoc())
+            .expect("error loading PHPDOC grammar");
+
         Self {
-            parser,
+            php_parser,
+            phpdoc_parser,
             file_trees: HashMap::new(),
             ns_to_dir: HashMap::new(),
         }
@@ -400,6 +408,29 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec
     Ok(composer_files)
 }
 
+impl Backend {
+    async fn parse_file(&self, contents: &str) -> Result<(Tree, Tree), QueryError> {
+        let data_guard = &mut *self.data.write().await;
+        let php_tree = data_guard.php_parser.parse(&contents, None).unwrap();
+        let php_root_node = php_tree.root_node();
+
+        let mut comment_ranges = Vec::new();
+        let query = Query::new(&language_php(), "(comment)")?;
+        let mut query_cursor = QueryCursor::new();
+        let mut captures = query_cursor.captures(&query, php_root_node, contents.as_bytes());
+        while let Some(m) = captures.next() {
+            for c in m.0.captures.iter() {
+                comment_ranges.push(c.node.range());
+            }
+        }
+
+        data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
+        let phpdoc_tree = data_guard.phpdoc_parser.parse(&contents, None).unwrap();
+
+        Ok((php_tree, phpdoc_tree))
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
@@ -477,22 +508,23 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
         let mut data_guard = self.data.write().await;
-        match data_guard.parser.parse(&data.text_document.text, None) {
-            Some(tree) => {
+        match self.parse_file(&data.text_document.text).await {
+            Ok((php_tree, comments_tree)) => {
                 data_guard.file_trees.insert(
                     data.text_document.uri,
                     FileData {
+                        php_tree,
+                        comments_tree,
                         contents: data.text_document.text,
-                        tree,
                         version: data.text_document.version,
                     },
                 );
             }
-            None => {
+            Err(e) => {
                 self.client
                     .log_message(
                         MessageType::ERROR,
-                        format!("could not parse file `{}`", &data.text_document.uri),
+                        format!("could not parse file `{}` because of {}", &data.text_document.uri, &e),
                     )
                     .await
             }
@@ -509,7 +541,7 @@ impl LanguageServer for Backend {
                 if entry.version >= data.text_document.version {
                     self.client
                         .log_message(
-                            MessageType::LOG,
+                            MessageType::WARNING,
                             format!(
                                 "didChange tried to change same version for file `{}`",
                                 &data.text_document.uri
@@ -548,7 +580,7 @@ impl LanguageServer for Backend {
                                     tree_sitter::Point { row, column }
                                 },
                             };
-                            entry.tree.edit(&input_edit);
+                            entry.php_tree.edit(&input_edit);
                             entry
                                 .contents
                                 .replace_range(start_byte..end_byte, &change.text);
@@ -557,9 +589,9 @@ impl LanguageServer for Backend {
                         entry.contents = change.text.clone();
                     }
 
-                    match data_guard.parser.parse(&entry.contents, None) {
+                    match data_guard.php_parser.parse(&entry.contents, None) {
                         Some(tree) => {
-                            entry.tree = tree;
+                            entry.php_tree = tree;
                         }
                         None => {
                             self.client
@@ -588,11 +620,11 @@ impl LanguageServer for Backend {
         data: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
         let data_guard = self.data.read().await;
-        if let Some(FileData { contents, tree, .. }) =
+        if let Some(FileData { contents, php_tree, .. }) =
             data_guard.file_trees.get(&data.text_document.uri)
         {
             Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
-                &tree.root_node(),
+                &php_tree.root_node(),
                 contents,
             ))))
         } else {
@@ -663,7 +695,8 @@ mod test {
         let version = 1;
         let file_data = FileData {
             contents: contents.to_string(),
-            tree,
+            php_tree: tree.clone(),
+            comments_tree: tree.clone(),        // doesn't need the comments
             version,
         };
 

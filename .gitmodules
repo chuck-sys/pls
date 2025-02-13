@@ -1,3 +1,6 @@
 [submodule "phpstorm-stubs"]
 	path = phpstorm-stubs
 	url = https://github.com/JetBrains/phpstorm-stubs
+[submodule "tree-sitter-phpdoc"]
+	path = tree-sitter-phpdoc
+	url = git@github.com:chuck-sys/tree-sitter-phpdoc.git
