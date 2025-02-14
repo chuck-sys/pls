@@ -454,27 +454,27 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec
     Ok(composer_files)
 }
 
-impl Backend {
-    async fn parse_file(&self, contents: &str) -> Result<(Tree, Tree), QueryError> {
-        let data_guard = &mut *self.data.write().await;
-        let php_tree = data_guard.php_parser.parse(&contents, None).unwrap();
-        let php_root_node = php_tree.root_node();
+async fn parse_file(data_guard: &mut BackendData, uri: &Url, contents: &str) -> Result<(Tree, Tree), QueryError> {
+    let maybe_entry = data_guard.file_trees.get(uri);
+    let old_php_tree = maybe_entry.map(|e| &e.php_tree);
+    let php_tree = data_guard.php_parser.parse(&contents, old_php_tree).unwrap();
+    let php_root_node = php_tree.root_node();
 
-        let mut comment_ranges = Vec::new();
-        let query = Query::new(&language_php(), "(comment)")?;
-        let mut query_cursor = QueryCursor::new();
-        let mut captures = query_cursor.captures(&query, php_root_node, contents.as_bytes());
-        while let Some(m) = captures.next() {
-            for c in m.0.captures.iter() {
-                comment_ranges.push(c.node.range());
-            }
+    let mut comment_ranges = Vec::new();
+    let query = Query::new(&language_php(), "(comment)")?;
+    let mut query_cursor = QueryCursor::new();
+    let mut captures = query_cursor.captures(&query, php_root_node, contents.as_bytes());
+    while let Some(m) = captures.next() {
+        for c in m.0.captures.iter() {
+            comment_ranges.push(c.node.range());
         }
-
-        data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
-        let phpdoc_tree = data_guard.phpdoc_parser.parse(&contents, None).unwrap();
-
-        Ok((php_tree, phpdoc_tree))
     }
+
+    data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
+    let old_phpdoc_tree = maybe_entry.map(|e| &e.comments_tree);
+    let phpdoc_tree = data_guard.phpdoc_parser.parse(&contents, old_phpdoc_tree).unwrap();
+
+    Ok((php_tree, phpdoc_tree))
 }
 
 #[tower_lsp::async_trait]
@@ -553,9 +553,9 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
-        match self.parse_file(&data.text_document.text).await {
+        let mut data_guard = self.data.write().await;
+        match parse_file(&mut data_guard, &data.text_document.uri, &data.text_document.text).await {
             Ok((php_tree, comments_tree)) => {
-                let mut data_guard = self.data.write().await;
                 data_guard.file_trees.insert(
                     data.text_document.uri,
                     FileData {
@@ -581,7 +581,7 @@ impl LanguageServer for Backend {
         // https://users.rust-lang.org/t/rwlock-is-confusing-me-and-or-mutable-borrow-counting/120492/2
         // we gently nudge the borrow checker to give us the actual &mut BackendData instead of
         // going through a DerefMut.
-        let data_guard = &mut *self.data.write().await;
+        let mut data_guard = &mut *self.data.write().await;
         match data_guard.file_trees.get_mut(&data.text_document.uri) {
             Some(entry) => {
                 if entry.version >= data.text_document.version {
@@ -634,17 +634,21 @@ impl LanguageServer for Backend {
                     } else {
                         entry.contents = change.text.clone();
                     }
+                }
 
-                    match data_guard.php_parser.parse(&entry.contents, None) {
-                        Some(tree) => {
-                            entry.php_tree = tree;
-                        }
-                        None => {
-                            self.client
-                                .log_message(MessageType::ERROR, "could not parse change")
-                                .await;
-                        }
+                let cloned_content = entry.contents.clone();
+                match parse_file(&mut data_guard, &data.text_document.uri, &cloned_content).await {
+                    Ok((php_tree, comments_tree)) => {
+                        // old `entry` dies when borrowed with `parse_file()`
+                        let entry = data_guard.file_trees.get_mut(&data.text_document.uri).unwrap();
+                        entry.php_tree = php_tree;
+                        entry.comments_tree = comments_tree;
                     }
+                    Err(e) => {
+                        self.client
+                            .log_message(MessageType::ERROR, format!("could not parse: {}", e))
+                            .await;
+                        }
                 }
             }
             None => {
