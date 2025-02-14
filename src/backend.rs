@@ -27,10 +27,6 @@ struct FileData {
     version: i32,
 }
 
-fn range_plaintext(file_contents: &String, range: tree_sitter::Range) -> String {
-    file_contents[range.start_byte..range.end_byte].to_owned()
-}
-
 /// Convert character offset into a position.
 ///
 /// If the offset is outside the contents given, return the last position of the file.
@@ -76,6 +72,38 @@ fn to_range(range: &tree_sitter::Range) -> Range {
     }
 }
 
+fn document_symbols_const_decl(
+    const_node: &Node,
+    file_contents: &String,
+) -> Option<DocumentSymbol> {
+    let mut cursor = const_node.walk();
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    loop {
+        let kind = cursor.node().kind();
+        if kind == "const_element" {
+            cursor.goto_first_child();
+
+            return Some(DocumentSymbol {
+                name: file_contents[cursor.node().byte_range()].to_string(),
+                detail: Some(file_contents[const_node.byte_range()].to_string()),
+                kind: SymbolKind::CONSTANT,
+                tags: None,
+                deprecated: None,
+                range: to_range(&cursor.node().range()),
+                selection_range: to_range(&const_node.range()),
+                children: None,
+            });
+        }
+
+        if !cursor.goto_next_sibling() {
+            return None;
+        }
+    }
+}
+
 fn document_symbols_property_decl(
     property_node: &Node,
     file_contents: &String,
@@ -91,8 +119,8 @@ fn document_symbols_property_decl(
             cursor.goto_first_child();
 
             return Some(DocumentSymbol {
-                name: range_plaintext(file_contents, cursor.node().range()),
-                detail: Some(range_plaintext(file_contents, property_node.range())),
+                name: file_contents[cursor.node().byte_range()].to_string(),
+                detail: Some(file_contents[property_node.byte_range()].to_string()),
                 kind: SymbolKind::PROPERTY,
                 tags: None,
                 deprecated: None,
@@ -123,8 +151,8 @@ fn document_symbols_method_params_decl(
         if kind == "simple_parameter" {
             if let Some(name_node) = cursor.node().child_by_field_name("name") {
                 symbols.push(DocumentSymbol {
-                    name: range_plaintext(file_contents, name_node.range()),
-                    detail: Some(range_plaintext(file_contents, cursor.node().range())),
+                    name: file_contents[name_node.byte_range()].to_string(),
+                    detail: Some(file_contents[cursor.node().byte_range()].to_string()),
                     kind: SymbolKind::VARIABLE,
                     tags: None,
                     deprecated: None,
@@ -171,19 +199,23 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
                 {
                     symbols.push(prop_docsym);
                 }
+            } else if kind == "const_declaration" {
+                if let Some(const_docsym) = document_symbols_const_decl(&cursor.node(), file_contents) {
+                    symbols.push(const_docsym);
+                }
             } else if kind == "{" || kind == "}" || kind == "comment" {
                 // ignore these
             } else if kind == "method_declaration" {
                 if let Some(name_node) = cursor.node().child_by_field_name("name") {
                     let children = document_symbols_method_decl(&cursor.node(), file_contents);
-                    let method_name = range_plaintext(file_contents, name_node.range());
-                    let kind = if &method_name == "__constructor" {
+                    let method_name = &file_contents[name_node.byte_range()];
+                    let kind = if method_name == "__constructor" {
                         SymbolKind::CONSTRUCTOR
                     } else {
                         SymbolKind::METHOD
                     };
                     symbols.push(DocumentSymbol {
-                        name: method_name,
+                        name: method_name.to_string(),
                         detail: None,
                         kind,
                         tags: None,
@@ -221,9 +253,23 @@ fn document_symbols(root_node: &Node, file_contents: &String) -> Vec<DocumentSym
             if let Some(name_node) = cursor.node().child_by_field_name("name") {
                 let children = document_symbols_class_decl(&cursor.node(), file_contents);
                 ret.push(DocumentSymbol {
-                    name: range_plaintext(file_contents, name_node.range()),
+                    name: file_contents[name_node.byte_range()].to_string(),
                     detail: None,
                     kind: SymbolKind::CLASS,
+                    tags: None,
+                    deprecated: None,
+                    range: to_range(&name_node.range()),
+                    selection_range: to_range(&cursor.node().range()),
+                    children: Some(children),
+                });
+            }
+        } else if kind == "function_definition" {
+            if let Some(name_node) = cursor.node().child_by_field_name("name") {
+                let children = document_symbols_method_params_decl(&cursor.node(), file_contents);
+                ret.push(DocumentSymbol {
+                    name: file_contents[name_node.byte_range()].to_string(),
+                    detail: None,
+                    kind: SymbolKind::FUNCTION,
                     tags: None,
                     deprecated: None,
                     range: to_range(&name_node.range()),
