@@ -230,8 +230,6 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
                         children: Some(children),
                     });
                 }
-            } else {
-                unimplemented!("{}", kind);
             }
 
             if !cursor.goto_next_sibling() {
