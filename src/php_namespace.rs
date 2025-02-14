@@ -58,7 +58,7 @@ mod test {
     use std::str::FromStr;
 
     #[test]
-    fn test_equality() {
+    fn equality() {
         let equivalents = [["\\Abc\\Def", "\\Abc\\Def\\"], ["", "\\"]];
 
         for [a, b] in equivalents {
@@ -67,7 +67,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_within() {
+    fn is_within() {
         let subnamespaces = [["Abc\\", "\\Abc\\Def\\"], ["", "Abc\\Def"]];
 
         for [a, b] in subnamespaces {
@@ -78,7 +78,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_not_within() {
+    fn is_not_within() {
         let subnamespaces = [["\\Abc\\", "\\Def\\Abc"]];
 
         for [a, b] in subnamespaces {

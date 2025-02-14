@@ -2,7 +2,10 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tree_sitter::{InputEdit, Node, Parser, Tree, Query, QueryError, QueryCursor, StreamingIterator, StreamingIteratorMut};
+use tree_sitter::{
+    InputEdit, Node, Parser, Query, QueryCursor, QueryError, StreamingIterator,
+    StreamingIteratorMut, Tree,
+};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
@@ -200,7 +203,9 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
                     symbols.push(prop_docsym);
                 }
             } else if kind == "const_declaration" {
-                if let Some(const_docsym) = document_symbols_const_decl(&cursor.node(), file_contents) {
+                if let Some(const_docsym) =
+                    document_symbols_const_decl(&cursor.node(), file_contents)
+                {
                     symbols.push(const_docsym);
                 }
             } else if kind == "{" || kind == "}" || kind == "comment" {
@@ -454,10 +459,17 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec
     Ok(composer_files)
 }
 
-async fn parse_file(data_guard: &mut BackendData, uri: &Url, contents: &str) -> Result<(Tree, Tree), QueryError> {
+async fn parse_file(
+    data_guard: &mut BackendData,
+    uri: &Url,
+    contents: &str,
+) -> Result<(Tree, Tree), QueryError> {
     let maybe_entry = data_guard.file_trees.get(uri);
     let old_php_tree = maybe_entry.map(|e| &e.php_tree);
-    let php_tree = data_guard.php_parser.parse(&contents, old_php_tree).unwrap();
+    let php_tree = data_guard
+        .php_parser
+        .parse(&contents, old_php_tree)
+        .unwrap();
     let php_root_node = php_tree.root_node();
 
     let mut comment_ranges = Vec::new();
@@ -470,9 +482,15 @@ async fn parse_file(data_guard: &mut BackendData, uri: &Url, contents: &str) -> 
         }
     }
 
-    data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
+    data_guard
+        .phpdoc_parser
+        .set_included_ranges(&comment_ranges)
+        .unwrap();
     let old_phpdoc_tree = maybe_entry.map(|e| &e.comments_tree);
-    let phpdoc_tree = data_guard.phpdoc_parser.parse(&contents, old_phpdoc_tree).unwrap();
+    let phpdoc_tree = data_guard
+        .phpdoc_parser
+        .parse(&contents, old_phpdoc_tree)
+        .unwrap();
 
     Ok((php_tree, phpdoc_tree))
 }
@@ -554,7 +572,13 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
         let mut data_guard = self.data.write().await;
-        match parse_file(&mut data_guard, &data.text_document.uri, &data.text_document.text).await {
+        match parse_file(
+            &mut data_guard,
+            &data.text_document.uri,
+            &data.text_document.text,
+        )
+        .await
+        {
             Ok((php_tree, comments_tree)) => {
                 data_guard.file_trees.insert(
                     data.text_document.uri,
@@ -570,7 +594,10 @@ impl LanguageServer for Backend {
                 self.client
                     .log_message(
                         MessageType::ERROR,
-                        format!("could not parse file `{}` because of {}", &data.text_document.uri, &e),
+                        format!(
+                            "could not parse file `{}` because of {}",
+                            &data.text_document.uri, &e
+                        ),
                     )
                     .await
             }
@@ -627,6 +654,7 @@ impl LanguageServer for Backend {
                                 },
                             };
                             entry.php_tree.edit(&input_edit);
+                            entry.comments_tree.edit(&input_edit);
                             entry
                                 .contents
                                 .replace_range(start_byte..end_byte, &change.text);
@@ -640,7 +668,10 @@ impl LanguageServer for Backend {
                 match parse_file(&mut data_guard, &data.text_document.uri, &cloned_content).await {
                     Ok((php_tree, comments_tree)) => {
                         // old `entry` dies when borrowed with `parse_file()`
-                        let entry = data_guard.file_trees.get_mut(&data.text_document.uri).unwrap();
+                        let entry = data_guard
+                            .file_trees
+                            .get_mut(&data.text_document.uri)
+                            .unwrap();
                         entry.php_tree = php_tree;
                         entry.comments_tree = comments_tree;
                     }
@@ -648,7 +679,7 @@ impl LanguageServer for Backend {
                         self.client
                             .log_message(MessageType::ERROR, format!("could not parse: {}", e))
                             .await;
-                        }
+                    }
                 }
             }
             None => {
@@ -670,8 +701,9 @@ impl LanguageServer for Backend {
         data: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
         let data_guard = self.data.read().await;
-        if let Some(FileData { contents, php_tree, .. }) =
-            data_guard.file_trees.get(&data.text_document.uri)
+        if let Some(FileData {
+            contents, php_tree, ..
+        }) = data_guard.file_trees.get(&data.text_document.uri)
         {
             Ok(Some(DocumentSymbolResponse::Nested(document_symbols(
                 &php_tree.root_node(),
@@ -682,7 +714,8 @@ impl LanguageServer for Backend {
                 .log_message(
                     MessageType::ERROR,
                     "documentSymbol could not find any file of this uri",
-                ).await;
+                )
+                .await;
             Ok(None)
         }
     }
@@ -738,7 +771,7 @@ mod test {
     }
 
     #[test]
-    fn test_will_change_phpechos() {
+    fn will_change_phpechos() {
         use super::FileData;
 
         let contents = "<?php   echo   addslashes('evil evil')  ;    ?>
@@ -751,7 +784,7 @@ mod test {
         let file_data = FileData {
             contents: contents.to_string(),
             php_tree: tree.clone(),
-            comments_tree: tree.clone(),        // doesn't need the comments
+            comments_tree: tree.clone(), // doesn't need the comments
             version,
         };
 
@@ -821,7 +854,7 @@ mod test {
             }";
 
     #[test]
-    fn test_valid_byte_offsets() {
+    fn valid_byte_offsets() {
         let valids = [
             (
                 Position {
@@ -846,7 +879,7 @@ mod test {
     }
 
     #[test]
-    fn test_invalid_byte_offsets() {
+    fn invalid_byte_offsets() {
         let invalids = [
             Position {
                 line: 200,
@@ -865,7 +898,7 @@ mod test {
     }
 
     #[test]
-    fn test_get_symbols() {
+    fn get_symbols() {
         let tree = parser().parse(SOURCE, None).unwrap();
         let root_node = tree.root_node();
         let actual_symbols = document_symbols(&root_node, &SOURCE.to_string());

@@ -118,7 +118,7 @@ mod test {
     }
 
     #[test]
-    fn test_no_autoload() {
+    fn no_autoload() {
         let data = to_cursor(json!({
             "project": "no autoload",
         }));
@@ -127,7 +127,7 @@ mod test {
     }
 
     #[test]
-    fn test_no_psr4() {
+    fn no_psr4() {
         let data = to_cursor(json!({
             "project": "no psr-4",
             "autoload": {
@@ -139,7 +139,7 @@ mod test {
     }
 
     #[test]
-    fn test_bad_psr4_type() {
+    fn bad_psr4_type() {
         let data = to_cursor(json!({
             "project": "no psr-4",
             "autoload": {
@@ -154,7 +154,7 @@ mod test {
     }
 
     #[test]
-    fn test_nothing_in_it() {
+    fn nothing_in_it() {
         let j = json!({});
         let m = to_map(j);
 
@@ -162,7 +162,7 @@ mod test {
     }
 
     #[test]
-    fn test_kv() {
+    fn kv() {
         let j = json!({
             "Monolog\\": "src/",
             "Vendor\\Namespace\\": [
