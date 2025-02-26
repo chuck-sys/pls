@@ -4,7 +4,7 @@ use tower_lsp::{Client, LanguageServer};
 
 use tree_sitter::{
     InputEdit, Node, Parser, Query, QueryCursor, QueryError, StreamingIterator,
-    StreamingIteratorMut, Tree,
+    Tree, Point,
 };
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
@@ -401,6 +401,43 @@ impl Backend {
             }
         }
     }
+
+    async fn get_selection_range(&self, uri: &Url, position: &Position) -> Option<SelectionRange> {
+        let data_guard = self.data.read().await;
+
+        if let Some(data) = data_guard.file_trees.get(uri) {
+            let mut ranges = Vec::with_capacity(20);
+            let root_node = data.php_tree.root_node();
+            let mut node = root_node.named_descendant_for_point_range(to_point(position), to_point(position));
+
+            loop {
+                match (node) {
+                    None => break,
+                    Some(n) => {
+                        ranges.push(SelectionRange {
+                            range: to_range(&n.range()),
+                            parent: None,
+                        });
+                        node = n.parent();
+                    },
+                }
+            }
+
+            if ranges.len() == 0 {
+                return None;
+            }
+
+            let mut parent = None;
+            for mut sr in ranges.into_iter().rev() {
+                sr.parent = parent;
+                parent = Some(Box::new(sr));
+            }
+
+            Some(*parent.unwrap())
+        } else {
+            None
+        }
+    }
 }
 
 fn phpecho_re() -> &'static Regex {
@@ -546,6 +583,7 @@ impl LanguageServer for Backend {
                         resolve_provider: Some(false),
                     },
                 )),
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -737,6 +775,18 @@ impl LanguageServer for Backend {
             }
         }
         Ok(Some(responses))
+    }
+
+    async fn selection_range(&self, params: SelectionRangeParams) -> LspResult<Option<Vec<SelectionRange>>> {
+        let mut acc = Vec::with_capacity(params.positions.len());
+
+        for position in params.positions {
+            if let Some(sr) = self.get_selection_range(&params.text_document.uri, &position).await {
+                acc.push(sr);
+            }
+        }
+
+        Ok(Some(acc))
     }
 }
 
