@@ -670,7 +670,7 @@ impl LanguageServer for Backend {
                             let input_edit = InputEdit {
                                 start_byte,
                                 old_end_byte: end_byte,
-                                new_end_byte: change.text.len(),
+                                new_end_byte: start_byte + change.text.len(),
                                 start_position: to_point(&r.start),
                                 old_end_position: to_point(&r.end),
                                 new_end_position: {
