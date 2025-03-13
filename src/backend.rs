@@ -89,6 +89,7 @@ fn document_symbols_const_decl(
         if kind == "const_element" {
             cursor.goto_first_child();
 
+            #[allow(deprecated)]
             return Some(DocumentSymbol {
                 name: file_contents[cursor.node().byte_range()].to_string(),
                 detail: Some(file_contents[const_node.byte_range()].to_string()),
@@ -121,6 +122,7 @@ fn document_symbols_property_decl(
         if kind == "property_element" {
             cursor.goto_first_child();
 
+            #[allow(deprecated)]
             return Some(DocumentSymbol {
                 name: file_contents[cursor.node().byte_range()].to_string(),
                 detail: Some(file_contents[property_node.byte_range()].to_string()),
@@ -153,6 +155,7 @@ fn document_symbols_method_params_decl(
         let kind = cursor.node().kind();
         if kind == "simple_parameter" {
             if let Some(name_node) = cursor.node().child_by_field_name("name") {
+                #[allow(deprecated)]
                 symbols.push(DocumentSymbol {
                     name: file_contents[name_node.byte_range()].to_string(),
                     detail: Some(file_contents[cursor.node().byte_range()].to_string()),
@@ -219,6 +222,8 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
                     } else {
                         SymbolKind::METHOD
                     };
+
+                    #[allow(deprecated)]
                     symbols.push(DocumentSymbol {
                         name: method_name.to_string(),
                         detail: None,
@@ -249,6 +254,7 @@ fn document_symbols(root_node: &Node, file_contents: &String) -> Vec<DocumentSym
         return ret;
     }
 
+    #[allow(deprecated)]
     loop {
         let kind = cursor.node().kind();
         // DFS
@@ -292,38 +298,26 @@ fn document_symbols(root_node: &Node, file_contents: &String) -> Vec<DocumentSym
 
 /// Get byte offset given some row and column position in a file.
 ///
-/// For example, line 1 character 1 should have offset of 0 (0-indexing).
+/// For example, line 0 character 0 should have offset of 0 (0-indexing). We don't check that the
+/// column is within the current line (e.g. line 0 character 2000 gives offset of 2000 even if the
+/// line isn't that long).
 ///
 /// Return None if the position is invalid (i.e. not in the file, out of range of current line,
 /// etc.)
 fn byte_offset(text: &String, r: &Position) -> Option<usize> {
-    if r.character == 0 {
-        return None;
-    }
-
-    let line = r.line as usize;
-    // start on the zeroth, not the first, because that's how offsets work
-    let character = r.character as usize - 1;
+    let mut current_line = 0;
     let mut current_offset = 0usize;
 
-    for (line_text, line_num) in text.lines().zip(1..=line) {
-        if line_num == line {
-            if character > line_text.len() {
-                return None;
-            } else {
-                return Some(current_offset + character);
-            }
-        } else {
-            let newline_offset = current_offset + line_text.len();
-            // assume only two types of newlines exist: `\n` and `\r\n`
-            let newline_num_bytes = if text[newline_offset..].starts_with("\n") {
-                1
-            } else {
-                2
-            };
-
-            current_offset += line_text.len() + newline_num_bytes;
+    for c in text.chars() {
+        if current_line == r.line {
+            return Some(current_offset + r.character as usize);
         }
+
+        if c == '\n' {
+            current_line += 1;
+        }
+
+        current_offset += 1;
     }
 
     None
@@ -411,7 +405,7 @@ impl Backend {
             let mut node = root_node.named_descendant_for_point_range(to_point(position), to_point(position));
 
             loop {
-                match (node) {
+                match node {
                     None => break,
                     Some(n) => {
                         ranges.push(SelectionRange {
@@ -494,42 +488,6 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec
     Ok(composer_files)
 }
 
-async fn parse_file(
-    data_guard: &mut BackendData,
-    uri: &Url,
-    contents: &str,
-) -> Result<(Tree, Tree), QueryError> {
-    let maybe_entry = data_guard.file_trees.get(uri);
-    let old_php_tree = maybe_entry.map(|e| &e.php_tree);
-    let php_tree = data_guard
-        .php_parser
-        .parse(&contents, old_php_tree)
-        .unwrap();
-    let php_root_node = php_tree.root_node();
-
-    let mut comment_ranges = Vec::new();
-    let query = Query::new(&language_php(), "(comment)")?;
-    let mut query_cursor = QueryCursor::new();
-    let mut captures = query_cursor.captures(&query, php_root_node, contents.as_bytes());
-    while let Some(m) = captures.next() {
-        for c in m.0.captures.iter() {
-            comment_ranges.push(c.node.range());
-        }
-    }
-
-    data_guard
-        .phpdoc_parser
-        .set_included_ranges(&comment_ranges)
-        .unwrap();
-    let old_phpdoc_tree = maybe_entry.map(|e| &e.comments_tree);
-    let phpdoc_tree = data_guard
-        .phpdoc_parser
-        .parse(&contents, old_phpdoc_tree)
-        .unwrap();
-
-    Ok((php_tree, phpdoc_tree))
-}
-
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
@@ -607,44 +565,38 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
-        let mut data_guard = self.data.write().await;
-        match parse_file(
-            &mut data_guard,
-            &data.text_document.uri,
-            &data.text_document.text,
-        )
-        .await
-        {
-            Ok((php_tree, comments_tree)) => {
-                data_guard.file_trees.insert(
-                    data.text_document.uri,
-                    FileData {
-                        php_tree,
-                        comments_tree,
-                        contents: data.text_document.text,
-                        version: data.text_document.version,
-                    },
-                );
-            }
-            Err(e) => {
-                self.client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!(
-                            "could not parse file `{}` because of {}",
-                            &data.text_document.uri, &e
-                        ),
-                    )
-                    .await
+        let data_guard = &mut *self.data.write().await;
+        let php_tree = data_guard.php_parser.parse(&data.text_document.text, None).unwrap();
+
+        let mut comment_ranges = Vec::new();
+        let query = Query::new(&language_php(), "(comment)").unwrap();
+        let mut cursor = QueryCursor::new();
+        let mut captures = cursor.captures(&query, php_tree.root_node(), data.text_document.text.as_bytes());
+        while let Some(m) = captures.next() {
+            for c in m.0.captures.iter() {
+                comment_ranges.push(c.node.range());
             }
         }
+
+        data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
+        let comments_tree = data_guard.phpdoc_parser.parse(&data.text_document.text, None).unwrap();
+
+        data_guard.file_trees.insert(
+            data.text_document.uri,
+            FileData {
+                php_tree,
+                comments_tree,
+                contents: data.text_document.text,
+                version: data.text_document.version,
+            },
+        );
     }
 
     async fn did_change(&self, data: DidChangeTextDocumentParams) {
         // https://users.rust-lang.org/t/rwlock-is-confusing-me-and-or-mutable-borrow-counting/120492/2
         // we gently nudge the borrow checker to give us the actual &mut BackendData instead of
         // going through a DerefMut.
-        let mut data_guard = &mut *self.data.write().await;
+        let data_guard = &mut *self.data.write().await;
         match data_guard.file_trees.get_mut(&data.text_document.uri) {
             Some(entry) => {
                 if entry.version >= data.text_document.version {
@@ -664,8 +616,8 @@ impl LanguageServer for Backend {
                 for change in data.content_changes {
                     if let Some(r) = change.range {
                         if let (Some(start_byte), Some(end_byte)) = (
-                            byte_offset(&change.text, &r.start),
-                            byte_offset(&change.text, &r.end),
+                            byte_offset(&entry.contents, &r.start),
+                            byte_offset(&entry.contents, &r.end),
                         ) {
                             let input_edit = InputEdit {
                                 start_byte,
@@ -694,29 +646,28 @@ impl LanguageServer for Backend {
                             entry
                                 .contents
                                 .replace_range(start_byte..end_byte, &change.text);
+                        } else {
+                            self.client.log_message(MessageType::ERROR, format!("didChange invalid ranges {:?}", &r)).await;
                         }
                     } else {
                         entry.contents = change.text.clone();
                     }
                 }
 
-                let cloned_content = entry.contents.clone();
-                match parse_file(&mut data_guard, &data.text_document.uri, &cloned_content).await {
-                    Ok((php_tree, comments_tree)) => {
-                        // old `entry` dies when borrowed with `parse_file()`
-                        let entry = data_guard
-                            .file_trees
-                            .get_mut(&data.text_document.uri)
-                            .unwrap();
-                        entry.php_tree = php_tree;
-                        entry.comments_tree = comments_tree;
-                    }
-                    Err(e) => {
-                        self.client
-                            .log_message(MessageType::ERROR, format!("could not parse: {}", e))
-                            .await;
+                entry.php_tree = data_guard.php_parser.parse(&entry.contents, Some(&entry.php_tree)).unwrap();
+
+                let mut comment_ranges = Vec::new();
+                let query = Query::new(&language_php(), "(comment)").unwrap();
+                let mut query_cursor = QueryCursor::new();
+                let mut captures = query_cursor.captures(&query, entry.php_tree.root_node(), entry.contents.as_bytes());
+                while let Some(m) = captures.next() {
+                    for c in m.0.captures.iter() {
+                        comment_ranges.push(c.node.range());
                     }
                 }
+
+                data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
+                entry.comments_tree = data_guard.phpdoc_parser.parse(&entry.contents, Some(&entry.comments_tree)).unwrap();
             }
             None => {
                 self.client
@@ -728,7 +679,7 @@ impl LanguageServer for Backend {
                         ),
                     )
                     .await;
-            }
+                }
         }
     }
 
@@ -906,15 +857,15 @@ mod test {
         let valids = [
             (
                 Position {
-                    line: 1,
-                    character: 1,
+                    line: 0,
+                    character: 0,
                 },
                 0usize,
             ),
             (
                 Position {
-                    line: 2,
-                    character: 1,
+                    line: 1,
+                    character: 0,
                 },
                 6usize,
             ),
@@ -932,10 +883,6 @@ mod test {
             Position {
                 line: 200,
                 character: 10,
-            },
-            Position {
-                line: 1,
-                character: 100,
             },
         ];
 
