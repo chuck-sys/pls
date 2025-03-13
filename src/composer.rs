@@ -1,5 +1,5 @@
-use serde_json::{Error as SerdeError, Map as SerdeMap, Value as SerdeValue};
 use serde::Deserialize;
+use serde_json::{Error as SerdeError, Map as SerdeMap, Value as SerdeValue};
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -85,7 +85,9 @@ impl Autoload {
             let ns = PhpNamespace::from_str(ns_str).unwrap();
             let paths = match paths {
                 PathScheme::SinglePath(p) => vec![PathBuf::from_str(&p).unwrap()],
-                PathScheme::MultiplePaths(vec) => vec.iter().map(|p| PathBuf::from_str(&p).unwrap()).collect(),
+                PathScheme::MultiplePaths(vec) => {
+                    vec.iter().map(|p| PathBuf::from_str(&p).unwrap()).collect()
+                }
             };
             psr4_ret.insert(ns, paths);
         }
@@ -154,7 +156,7 @@ mod test {
         }));
 
         match Autoload::from_reader(data) {
-            Err(AutoloadError::BadDeserde(_)) => {},
+            Err(AutoloadError::BadDeserde(_)) => {}
             x => panic!("{:?}", x),
         }
     }

@@ -3,8 +3,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use tree_sitter::{
-    InputEdit, Node, Parser, Query, QueryCursor, QueryError, StreamingIterator,
-    Tree, Point,
+    InputEdit, Node, Parser, Point, Query, QueryCursor, QueryError, StreamingIterator, Tree,
 };
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
@@ -402,7 +401,8 @@ impl Backend {
         if let Some(data) = data_guard.file_trees.get(uri) {
             let mut ranges = Vec::with_capacity(20);
             let root_node = data.php_tree.root_node();
-            let mut node = root_node.named_descendant_for_point_range(to_point(position), to_point(position));
+            let mut node =
+                root_node.named_descendant_for_point_range(to_point(position), to_point(position));
 
             loop {
                 match node {
@@ -413,7 +413,7 @@ impl Backend {
                             parent: None,
                         });
                         node = n.parent();
-                    },
+                    }
                 }
             }
 
@@ -566,20 +566,33 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
         let data_guard = &mut *self.data.write().await;
-        let php_tree = data_guard.php_parser.parse(&data.text_document.text, None).unwrap();
+        let php_tree = data_guard
+            .php_parser
+            .parse(&data.text_document.text, None)
+            .unwrap();
 
         let mut comment_ranges = Vec::new();
         let query = Query::new(&language_php(), "(comment)").unwrap();
         let mut cursor = QueryCursor::new();
-        let mut captures = cursor.captures(&query, php_tree.root_node(), data.text_document.text.as_bytes());
+        let mut captures = cursor.captures(
+            &query,
+            php_tree.root_node(),
+            data.text_document.text.as_bytes(),
+        );
         while let Some(m) = captures.next() {
             for c in m.0.captures.iter() {
                 comment_ranges.push(c.node.range());
             }
         }
 
-        data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
-        let comments_tree = data_guard.phpdoc_parser.parse(&data.text_document.text, None).unwrap();
+        data_guard
+            .phpdoc_parser
+            .set_included_ranges(&comment_ranges)
+            .unwrap();
+        let comments_tree = data_guard
+            .phpdoc_parser
+            .parse(&data.text_document.text, None)
+            .unwrap();
 
         data_guard.file_trees.insert(
             data.text_document.uri,
@@ -647,27 +660,45 @@ impl LanguageServer for Backend {
                                 .contents
                                 .replace_range(start_byte..end_byte, &change.text);
                         } else {
-                            self.client.log_message(MessageType::ERROR, format!("didChange invalid ranges {:?}", &r)).await;
+                            self.client
+                                .log_message(
+                                    MessageType::ERROR,
+                                    format!("didChange invalid ranges {:?}", &r),
+                                )
+                                .await;
                         }
                     } else {
                         entry.contents = change.text.clone();
                     }
                 }
 
-                entry.php_tree = data_guard.php_parser.parse(&entry.contents, Some(&entry.php_tree)).unwrap();
+                entry.php_tree = data_guard
+                    .php_parser
+                    .parse(&entry.contents, Some(&entry.php_tree))
+                    .unwrap();
 
                 let mut comment_ranges = Vec::new();
                 let query = Query::new(&language_php(), "(comment)").unwrap();
                 let mut query_cursor = QueryCursor::new();
-                let mut captures = query_cursor.captures(&query, entry.php_tree.root_node(), entry.contents.as_bytes());
+                let mut captures = query_cursor.captures(
+                    &query,
+                    entry.php_tree.root_node(),
+                    entry.contents.as_bytes(),
+                );
                 while let Some(m) = captures.next() {
                     for c in m.0.captures.iter() {
                         comment_ranges.push(c.node.range());
                     }
                 }
 
-                data_guard.phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
-                entry.comments_tree = data_guard.phpdoc_parser.parse(&entry.contents, Some(&entry.comments_tree)).unwrap();
+                data_guard
+                    .phpdoc_parser
+                    .set_included_ranges(&comment_ranges)
+                    .unwrap();
+                entry.comments_tree = data_guard
+                    .phpdoc_parser
+                    .parse(&entry.contents, Some(&entry.comments_tree))
+                    .unwrap();
             }
             None => {
                 self.client
@@ -679,7 +710,7 @@ impl LanguageServer for Backend {
                         ),
                     )
                     .await;
-                }
+            }
         }
     }
 
@@ -728,11 +759,17 @@ impl LanguageServer for Backend {
         Ok(Some(responses))
     }
 
-    async fn selection_range(&self, params: SelectionRangeParams) -> LspResult<Option<Vec<SelectionRange>>> {
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> LspResult<Option<Vec<SelectionRange>>> {
         let mut acc = Vec::with_capacity(params.positions.len());
 
         for position in params.positions {
-            if let Some(sr) = self.get_selection_range(&params.text_document.uri, &position).await {
+            if let Some(sr) = self
+                .get_selection_range(&params.text_document.uri, &position)
+                .await
+            {
                 acc.push(sr);
             }
         }
@@ -879,12 +916,10 @@ mod test {
 
     #[test]
     fn invalid_byte_offsets() {
-        let invalids = [
-            Position {
-                line: 200,
-                character: 10,
-            },
-        ];
+        let invalids = [Position {
+            line: 200,
+            character: 10,
+        }];
 
         let s = SOURCE.to_string();
         for invalid_position in invalids {
