@@ -174,19 +174,6 @@ fn document_symbols_method_params_decl(
     }
 }
 
-fn document_symbols_method_decl(method_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
-    let mut symbols = vec![];
-
-    if let Some(method_parameters_node) = method_node.child_by_field_name("parameters") {
-        symbols.extend(document_symbols_method_params_decl(
-            &method_parameters_node,
-            file_contents,
-        ));
-    }
-
-    symbols
-}
-
 fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
     let mut symbols = vec![];
 
@@ -214,7 +201,6 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
                 // ignore these
             } else if kind == "method_declaration" {
                 if let Some(name_node) = cursor.node().child_by_field_name("name") {
-                    let children = document_symbols_method_decl(&cursor.node(), file_contents);
                     let method_name = &file_contents[name_node.byte_range()];
                     let kind = if method_name == "__constructor" {
                         SymbolKind::CONSTRUCTOR
@@ -231,7 +217,7 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
                         deprecated: None,
                         range: to_range(&name_node.range()),
                         selection_range: to_range(&cursor.node().range()),
-                        children: Some(children),
+                        children: None,
                     });
                 }
             }
