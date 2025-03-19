@@ -856,6 +856,7 @@ mod test {
     use super::byte_offset;
     use super::changes_phpecho;
     use super::document_symbols;
+    use super::get_tree_diagnostics;
 
     macro_rules! unwrap_enum {
         ($value:expr, $variant:path) => {
@@ -1026,5 +1027,11 @@ mod test {
             SymbolKind::CONSTRUCTOR,
             actual_symbols[1].children.as_ref().unwrap()[1].kind
         );
+    }
+
+    #[test]
+    fn no_diags() {
+        let tree = parser().parse(SOURCE, None).unwrap();
+        assert_eq!(0, get_tree_diagnostics(tree.root_node(), SOURCE).len());
     }
 }
