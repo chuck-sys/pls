@@ -425,6 +425,21 @@ fn phpecho_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap())
 }
 
+fn comment_query() -> &'static Query {
+    static Q: OnceLock<Query> = OnceLock::new();
+    Q.get_or_init(|| Query::new(&language_php(), "(comment)").unwrap())
+}
+
+fn missing_query() -> &'static Query {
+    static Q: OnceLock<Query> = OnceLock::new();
+    Q.get_or_init(|| Query::new(&language_php(), "(MISSING) @missings").unwrap())
+}
+
+fn error_query() -> &'static Query {
+    static Q: OnceLock<Query> = OnceLock::new();
+    Q.get_or_init(|| Query::new(&language_php(), "(ERROR) @error").unwrap())
+}
+
 fn changes_phpecho(uri: &Url, file_data: &FileData) -> Option<DocumentChanges> {
     let mut edits = vec![];
     let text_document = OptionalVersionedTextDocumentIdentifier {
@@ -472,6 +487,93 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec
     }
 
     Ok(composer_files)
+}
+
+fn get_comment_ranges(node: Node<'_>, content: &str) -> Vec<tree_sitter::Range> {
+    let mut ranges = Vec::new();
+    let query = comment_query();
+    let mut cursor = QueryCursor::new();
+    let mut captures = cursor.captures(
+        &query,
+        node,
+        content.as_bytes(),
+    );
+    while let Some(m) = captures.next() {
+        for c in m.0.captures.iter() {
+            ranges.push(c.node.range());
+        }
+    }
+
+    ranges
+}
+
+fn get_tree_diagnostics(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
+    let mut missings = get_tree_diagnostics_missing(node.clone(), content);
+    let errors = get_tree_diagnostics_errors(node, content);
+
+    missings.extend(errors);
+
+    missings
+}
+
+fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
+    let query = missing_query();
+    let mut cursor = QueryCursor::new();
+    let mut captures = cursor.captures(
+        &query,
+        node,
+        content.as_bytes(),
+    );
+
+    let mut diagnostics = Vec::new();
+    while let Some((m, _)) = captures.next() {
+        for c in m.captures.iter() {
+            let sexp = c.node.to_sexp();
+            diagnostics.push(Diagnostic {
+                range: to_range(&c.node.range()),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: None,
+                code_description: None,
+                source: Some("ts".to_string()),
+                message: sexp[1..sexp.len() - 1].to_string(),
+                related_information: None,
+                tags: None,
+                data: None,
+            });
+        }
+    }
+
+    diagnostics
+}
+
+
+fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
+    let query = error_query();
+    let mut cursor = QueryCursor::new();
+    let mut captures = cursor.captures(
+        &query,
+        node,
+        content.as_bytes(),
+    );
+
+    let mut diagnostics = Vec::new();
+    while let Some((m, _)) = captures.next() {
+        for c in m.captures.iter() {
+            diagnostics.push(Diagnostic {
+                range: to_range(&c.node.range()),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: None,
+                code_description: None,
+                source: Some("ts".to_string()),
+                message: format!("UNEXPECTED: {}", &content[c.node.byte_range()]),
+                related_information: None,
+                tags: None,
+                data: None,
+            });
+        }
+    }
+
+    diagnostics
 }
 
 #[tower_lsp::async_trait]
@@ -557,28 +659,19 @@ impl LanguageServer for Backend {
             .parse(&data.text_document.text, None)
             .unwrap();
 
-        let mut comment_ranges = Vec::new();
-        let query = Query::new(&language_php(), "(comment)").unwrap();
-        let mut cursor = QueryCursor::new();
-        let mut captures = cursor.captures(
-            &query,
-            php_tree.root_node(),
-            data.text_document.text.as_bytes(),
-        );
-        while let Some(m) = captures.next() {
-            for c in m.0.captures.iter() {
-                comment_ranges.push(c.node.range());
-            }
-        }
-
+        let comment_ranges = get_comment_ranges(php_tree.root_node(), &data.text_document.text);
         data_guard
             .phpdoc_parser
             .set_included_ranges(&comment_ranges)
             .unwrap();
+
         let comments_tree = data_guard
             .phpdoc_parser
             .parse(&data.text_document.text, None)
             .unwrap();
+
+        let diagnostics = get_tree_diagnostics(php_tree.root_node(), &data.text_document.text);
+        self.client.publish_diagnostics(data.text_document.uri.clone(), diagnostics, Some(data.text_document.version)).await;
 
         data_guard.file_trees.insert(
             data.text_document.uri,
@@ -663,20 +756,7 @@ impl LanguageServer for Backend {
                     .parse(&entry.contents, Some(&entry.php_tree))
                     .unwrap();
 
-                let mut comment_ranges = Vec::new();
-                let query = Query::new(&language_php(), "(comment)").unwrap();
-                let mut query_cursor = QueryCursor::new();
-                let mut captures = query_cursor.captures(
-                    &query,
-                    entry.php_tree.root_node(),
-                    entry.contents.as_bytes(),
-                );
-                while let Some(m) = captures.next() {
-                    for c in m.0.captures.iter() {
-                        comment_ranges.push(c.node.range());
-                    }
-                }
-
+                let comment_ranges = get_comment_ranges(entry.php_tree.root_node(), &entry.contents);
                 data_guard
                     .phpdoc_parser
                     .set_included_ranges(&comment_ranges)
@@ -685,6 +765,9 @@ impl LanguageServer for Backend {
                     .phpdoc_parser
                     .parse(&entry.contents, Some(&entry.comments_tree))
                     .unwrap();
+
+                let diagnostics = get_tree_diagnostics(entry.php_tree.root_node(), &entry.contents);
+                self.client.publish_diagnostics(data.text_document.uri.clone(), diagnostics, Some(data.text_document.version)).await;
             }
             None => {
                 self.client
