@@ -493,11 +493,7 @@ fn get_comment_ranges(node: Node<'_>, content: &str) -> Vec<tree_sitter::Range> 
     let mut ranges = Vec::new();
     let query = comment_query();
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(
-        &query,
-        node,
-        content.as_bytes(),
-    );
+    let mut captures = cursor.captures(&query, node, content.as_bytes());
     while let Some(m) = captures.next() {
         for c in m.0.captures.iter() {
             ranges.push(c.node.range());
@@ -519,11 +515,7 @@ fn get_tree_diagnostics(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
 fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let query = missing_query();
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(
-        &query,
-        node,
-        content.as_bytes(),
-    );
+    let mut captures = cursor.captures(&query, node, content.as_bytes());
 
     let mut diagnostics = Vec::new();
     while let Some((m, _)) = captures.next() {
@@ -546,15 +538,10 @@ fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic
     diagnostics
 }
 
-
 fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let query = error_query();
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(
-        &query,
-        node,
-        content.as_bytes(),
-    );
+    let mut captures = cursor.captures(&query, node, content.as_bytes());
 
     let mut diagnostics = Vec::new();
     while let Some((m, _)) = captures.next() {
@@ -671,7 +658,13 @@ impl LanguageServer for Backend {
             .unwrap();
 
         let diagnostics = get_tree_diagnostics(php_tree.root_node(), &data.text_document.text);
-        self.client.publish_diagnostics(data.text_document.uri.clone(), diagnostics, Some(data.text_document.version)).await;
+        self.client
+            .publish_diagnostics(
+                data.text_document.uri.clone(),
+                diagnostics,
+                Some(data.text_document.version),
+            )
+            .await;
 
         data_guard.file_trees.insert(
             data.text_document.uri,
@@ -756,7 +749,8 @@ impl LanguageServer for Backend {
                     .parse(&entry.contents, Some(&entry.php_tree))
                     .unwrap();
 
-                let comment_ranges = get_comment_ranges(entry.php_tree.root_node(), &entry.contents);
+                let comment_ranges =
+                    get_comment_ranges(entry.php_tree.root_node(), &entry.contents);
                 data_guard
                     .phpdoc_parser
                     .set_included_ranges(&comment_ranges)
@@ -767,7 +761,13 @@ impl LanguageServer for Backend {
                     .unwrap();
 
                 let diagnostics = get_tree_diagnostics(entry.php_tree.root_node(), &entry.contents);
-                self.client.publish_diagnostics(data.text_document.uri.clone(), diagnostics, Some(data.text_document.version)).await;
+                self.client
+                    .publish_diagnostics(
+                        data.text_document.uri.clone(),
+                        diagnostics,
+                        Some(data.text_document.version),
+                    )
+                    .await;
             }
             None => {
                 self.client
@@ -1008,8 +1008,12 @@ mod test {
         assert_eq!("$x", &actual_symbols[0].children.as_ref().unwrap()[0].name);
         assert_eq!("foo", &actual_symbols[0].children.as_ref().unwrap()[1].name);
         assert_eq!("fee", &actual_symbols[0].children.as_ref().unwrap()[2].name);
-        assert!(actual_symbols[0].children.as_ref().unwrap()[0].children.is_none());
-        assert!(actual_symbols[0].children.as_ref().unwrap()[2].children.is_none());
+        assert!(actual_symbols[0].children.as_ref().unwrap()[0]
+            .children
+            .is_none());
+        assert!(actual_symbols[0].children.as_ref().unwrap()[2]
+            .children
+            .is_none());
         assert_eq!(2, actual_symbols[1].children.as_ref().unwrap().len());
         assert_eq!(
             "private int $y = 3;",
