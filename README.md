@@ -6,7 +6,9 @@
 
 # Current features
 
+- diagnostics for syntax errors
 - `textDocument/documentSymbol`
+- `textDocument/selectionRange`
 
 # Dev
 
