@@ -418,6 +418,50 @@ impl Backend {
             None
         }
     }
+
+    async fn get_hover_markup(&self, uri: &Url, position: &Position) -> Option<String> {
+        let data_guard = self.data.read().await;
+
+        if let Some(data) = data_guard.file_trees.get(uri) {
+            let root_node = data.php_tree.root_node();
+            let n = root_node.named_descendant_for_point_range(to_point(position), to_point(position));
+
+            match n {
+                None => return None,
+                Some(n) => {
+                    if n.kind() == "name" {
+                        return n.parent().map(|n| n.to_string());
+                    } else {
+                        return Some(n.to_string());
+                    }
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
+fn supported_capabilities() -> &'static ServerCapabilities {
+    static Caps: OnceLock<ServerCapabilities> = OnceLock::new();
+    Caps.get_or_init(|| ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                                    TextDocumentSyncKind::INCREMENTAL,
+                            )),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        code_action_provider: Some(CodeActionProviderCapability::Options(
+                CodeActionOptions {
+                    code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: Some(false),
+                    },
+                    resolve_provider: Some(false),
+                },
+        )),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        ..ServerCapabilities::default()
+    })
 }
 
 fn phpecho_re() -> &'static Regex {
@@ -600,23 +644,7 @@ impl LanguageServer for Backend {
         self.read_composer_files(composer_files).await;
 
         Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
-                )),
-                document_symbol_provider: Some(OneOf::Left(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Options(
-                    CodeActionOptions {
-                        code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
-                        work_done_progress_options: WorkDoneProgressOptions {
-                            work_done_progress: Some(false),
-                        },
-                        resolve_provider: Some(false),
-                    },
-                )),
-                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
-                ..ServerCapabilities::default()
-            },
+            capabilities: supported_capabilities().clone(),
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -842,6 +870,23 @@ impl LanguageServer for Backend {
         }
 
         Ok(Some(acc))
+    }
+
+    async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = &params.text_document_position_params.position;
+
+        if let Some(content) = self.get_hover_markup(uri, position).await {
+            Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: content,
+                }),
+                range: None,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 
