@@ -443,8 +443,8 @@ impl Backend {
 }
 
 fn supported_capabilities() -> &'static ServerCapabilities {
-    static Caps: OnceLock<ServerCapabilities> = OnceLock::new();
-    Caps.get_or_init(|| ServerCapabilities {
+    static CAPS: OnceLock<ServerCapabilities> = OnceLock::new();
+    CAPS.get_or_init(|| ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
                                     TextDocumentSyncKind::INCREMENTAL,
                             )),
