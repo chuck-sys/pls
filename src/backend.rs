@@ -3,7 +3,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use tree_sitter::{
-    InputEdit, Node, Parser, Point, Query, QueryCursor, QueryError, StreamingIterator, Tree,
+    InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree,
 };
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
@@ -596,8 +596,6 @@ impl LanguageServer for Backend {
                 .await;
         }
 
-        // TODO check workspace folders for `composer.json` and read namespaces with PSR-4 and
-        // PSR-0 (maybe support it??)
         let composer_files = get_composer_files(&workspace_folders)?;
         self.read_composer_files(composer_files).await;
 
