@@ -31,11 +31,10 @@ impl PhpNamespace {
     }
 }
 
-impl ToString for PhpNamespace {
-    fn to_string(&self) -> String {
-        let mut joined = self.0.join("\\");
-        joined.insert(0, '\\');
-        joined
+impl std::fmt::Display for PhpNamespace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let joined = self.0.join("\\");
+        write!(f, "\\{}", joined)
     }
 }
 

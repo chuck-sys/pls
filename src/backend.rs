@@ -2,9 +2,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tree_sitter::{
-    InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree,
-};
+use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
@@ -74,10 +72,7 @@ fn to_range(range: &tree_sitter::Range) -> Range {
     }
 }
 
-fn document_symbols_const_decl(
-    const_node: &Node,
-    file_contents: &String,
-) -> Option<DocumentSymbol> {
+fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
     if !cursor.goto_first_child() {
         return None;
@@ -109,7 +104,7 @@ fn document_symbols_const_decl(
 
 fn document_symbols_property_decl(
     property_node: &Node,
-    file_contents: &String,
+    file_contents: &str,
 ) -> Option<DocumentSymbol> {
     let mut cursor = property_node.walk();
     if !cursor.goto_first_child() {
@@ -140,10 +135,7 @@ fn document_symbols_property_decl(
     }
 }
 
-fn document_symbols_method_params_decl(
-    params: &Node,
-    file_contents: &String,
-) -> Vec<DocumentSymbol> {
+fn document_symbols_method_params_decl(params: &Node, file_contents: &str) -> Vec<DocumentSymbol> {
     let mut symbols = vec![];
     let mut cursor = params.walk();
     if !cursor.goto_first_child() {
@@ -174,7 +166,7 @@ fn document_symbols_method_params_decl(
     }
 }
 
-fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
+fn document_symbols_class_decl(class_node: &Node, file_contents: &str) -> Vec<DocumentSymbol> {
     let mut symbols = vec![];
 
     if let Some(decl_list) = class_node.child_by_field_name("body") {
@@ -231,7 +223,7 @@ fn document_symbols_class_decl(class_node: &Node, file_contents: &String) -> Vec
     symbols
 }
 
-fn document_symbols(root_node: &Node, file_contents: &String) -> Vec<DocumentSymbol> {
+fn document_symbols(root_node: &Node, file_contents: &str) -> Vec<DocumentSymbol> {
     let mut ret = Vec::new();
     let mut cursor = root_node.walk();
 
@@ -289,7 +281,7 @@ fn document_symbols(root_node: &Node, file_contents: &String) -> Vec<DocumentSym
 ///
 /// Return None if the position is invalid (i.e. not in the file, out of range of current line,
 /// etc.)
-fn byte_offset(text: &String, r: &Position) -> Option<usize> {
+fn byte_offset(text: &str, r: &Position) -> Option<usize> {
     let mut current_line = 0;
     let mut current_offset = 0usize;
 
@@ -403,7 +395,7 @@ impl Backend {
                 }
             }
 
-            if ranges.len() == 0 {
+            if ranges.is_empty() {
                 return None;
             }
 
@@ -424,15 +416,16 @@ impl Backend {
 
         if let Some(data) = data_guard.file_trees.get(uri) {
             let root_node = data.php_tree.root_node();
-            let n = root_node.named_descendant_for_point_range(to_point(position), to_point(position));
+            let n =
+                root_node.named_descendant_for_point_range(to_point(position), to_point(position));
 
             match n {
-                None => return None,
+                None => None,
                 Some(n) => {
                     if n.kind() == "name" {
-                        return n.parent().map(|n| n.to_string());
+                        n.parent().map(|n| n.to_string())
                     } else {
-                        return Some(n.to_string());
+                        Some(n.to_string())
                     }
                 }
             }
@@ -446,18 +439,16 @@ fn supported_capabilities() -> &'static ServerCapabilities {
     static CAPS: OnceLock<ServerCapabilities> = OnceLock::new();
     CAPS.get_or_init(|| ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                                    TextDocumentSyncKind::INCREMENTAL,
-                            )),
-        document_symbol_provider: Some(OneOf::Left(true)),
-        code_action_provider: Some(CodeActionProviderCapability::Options(
-                CodeActionOptions {
-                    code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
-                    work_done_progress_options: WorkDoneProgressOptions {
-                        work_done_progress: Some(false),
-                    },
-                    resolve_provider: Some(false),
-                },
+            TextDocumentSyncKind::INCREMENTAL,
         )),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
+            work_done_progress_options: WorkDoneProgressOptions {
+                work_done_progress: Some(false),
+            },
+            resolve_provider: Some(false),
+        })),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
@@ -537,7 +528,7 @@ fn get_comment_ranges(node: Node<'_>, content: &str) -> Vec<tree_sitter::Range> 
     let mut ranges = Vec::new();
     let query = comment_query();
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(&query, node, content.as_bytes());
+    let mut captures = cursor.captures(query, node, content.as_bytes());
     while let Some(m) = captures.next() {
         for c in m.0.captures.iter() {
             ranges.push(c.node.range());
@@ -548,7 +539,7 @@ fn get_comment_ranges(node: Node<'_>, content: &str) -> Vec<tree_sitter::Range> 
 }
 
 fn get_tree_diagnostics(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
-    let mut missings = get_tree_diagnostics_missing(node.clone(), content);
+    let mut missings = get_tree_diagnostics_missing(node, content);
     let errors = get_tree_diagnostics_errors(node, content);
 
     missings.extend(errors);
@@ -559,7 +550,7 @@ fn get_tree_diagnostics(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
 fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let query = missing_query();
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(&query, node, content.as_bytes());
+    let mut captures = cursor.captures(query, node, content.as_bytes());
 
     let mut diagnostics = Vec::new();
     while let Some((m, _)) = captures.next() {
@@ -585,7 +576,7 @@ fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic
 fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let query = error_query();
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(&query, node, content.as_bytes());
+    let mut captures = cursor.captures(query, node, content.as_bytes());
 
     let mut diagnostics = Vec::new();
     while let Some((m, _)) = captures.next() {
@@ -611,7 +602,7 @@ fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic>
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
         let mut workspace_folders = params.workspace_folders.unwrap_or(vec![]);
-        if workspace_folders.len() == 0 {
+        if workspace_folders.is_empty() {
             if let Some(root_uri) = params.root_uri {
                 workspace_folders.push(WorkspaceFolder {
                     uri: root_uri.clone(),
@@ -620,7 +611,7 @@ impl LanguageServer for Backend {
             }
         }
 
-        if workspace_folders.len() == 0 {
+        if workspace_folders.is_empty() {
             self.client
                 .log_message(
                     MessageType::LOG,
@@ -838,7 +829,7 @@ impl LanguageServer for Backend {
         let data_guard = self.data.read().await;
         if let Some(file_data) = data_guard.file_trees.get(&params.text_document.uri) {
             if file_data.contents.contains("<?php echo ") {
-                let document_changes = changes_phpecho(&params.text_document.uri, &file_data);
+                let document_changes = changes_phpecho(&params.text_document.uri, file_data);
                 let action = CodeAction {
                     title: "Convert `<?php echo ` into `<?=`".to_string(),
                     kind: Some(CodeActionKind::SOURCE),

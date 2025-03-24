@@ -84,9 +84,9 @@ impl Autoload {
         for (ns_str, paths) in &psr4.0 {
             let ns = PhpNamespace::from_str(ns_str).unwrap();
             let paths = match paths {
-                PathScheme::SinglePath(p) => vec![PathBuf::from_str(&p).unwrap()],
+                PathScheme::SinglePath(p) => vec![PathBuf::from_str(p).unwrap()],
                 PathScheme::MultiplePaths(vec) => {
-                    vec.iter().map(|p| PathBuf::from_str(&p).unwrap()).collect()
+                    vec.iter().map(|p| PathBuf::from_str(p).unwrap()).collect()
                 }
             };
             psr4_ret.insert(ns, paths);
@@ -99,7 +99,7 @@ impl Autoload {
 #[cfg(test)]
 mod test {
     use serde_json::json;
-    use serde_json::{Map, Value};
+    use serde_json::Value;
 
     use std::io::Cursor;
     use std::path::PathBuf;
@@ -108,15 +108,6 @@ mod test {
     use super::Autoload;
     use super::AutoloadError;
     use super::PhpNamespace;
-
-    type Object = Map<String, Value>;
-
-    fn to_map(v: Value) -> Object {
-        match v {
-            Value::Object(m) => m.clone(),
-            _ => panic!("must be a map"),
-        }
-    }
 
     fn to_cursor(v: Value) -> Cursor<Vec<u8>> {
         Cursor::new(v.to_string().into())
