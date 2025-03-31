@@ -2,7 +2,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use crate::composer::Autoload;
 use crate::code_action::changes_phpecho;
 use crate::php_namespace::PhpNamespace;
-use crate::file::{FileData, byte_offset};
+use crate::file::{FileData, byte_offset, parse};
 use crate::compat::*;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
@@ -377,11 +377,6 @@ fn supported_capabilities() -> &'static ServerCapabilities {
     })
 }
 
-fn comment_query() -> &'static Query {
-    static Q: OnceLock<Query> = OnceLock::new();
-    Q.get_or_init(|| Query::new(&language_php(), "(comment)").unwrap())
-}
-
 fn missing_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();
     Q.get_or_init(|| Query::new(&language_php(), "(MISSING) @missings").unwrap())
@@ -413,20 +408,6 @@ fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec
     }
 
     Ok(composer_files)
-}
-
-fn get_comment_ranges(node: Node<'_>, content: &str) -> Vec<tree_sitter::Range> {
-    let mut ranges = Vec::new();
-    let query = comment_query();
-    let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(query, node, content.as_bytes());
-    while let Some(m) = captures.next() {
-        for c in m.0.captures.iter() {
-            ranges.push(c.node.range());
-        }
-    }
-
-    ranges
 }
 
 fn get_tree_diagnostics(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
@@ -549,21 +530,11 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
         let data_guard = &mut *self.data.write().await;
-        let php_tree = data_guard
-            .php_parser
-            .parse(&data.text_document.text, None)
-            .unwrap();
-
-        let comment_ranges = get_comment_ranges(php_tree.root_node(), &data.text_document.text);
-        data_guard
-            .phpdoc_parser
-            .set_included_ranges(&comment_ranges)
-            .unwrap();
-
-        let comments_tree = data_guard
-            .phpdoc_parser
-            .parse(&data.text_document.text, None)
-            .unwrap();
+        let (php_tree, comments_tree) = parse(
+            (&mut data_guard.php_parser, &mut data_guard.phpdoc_parser),
+            &data.text_document.text,
+            (None, None),
+        );
 
         let diagnostics = get_tree_diagnostics(php_tree.root_node(), &data.text_document.text);
         self.client
@@ -606,67 +577,21 @@ impl LanguageServer for Backend {
                 }
 
                 entry.version = data.text_document.version;
-                for change in data.content_changes {
-                    if let Some(r) = change.range {
-                        if let (Some(start_byte), Some(end_byte)) = (
-                            byte_offset(&entry.contents, &r.start),
-                            byte_offset(&entry.contents, &r.end),
-                        ) {
-                            let input_edit = InputEdit {
-                                start_byte,
-                                old_end_byte: end_byte,
-                                new_end_byte: start_byte + change.text.len(),
-                                start_position: to_point(&r.start),
-                                old_end_position: to_point(&r.end),
-                                new_end_position: {
-                                    let mut row = r.start.line as usize;
-                                    let mut column = r.start.character as usize;
-
-                                    for c in change.text.chars() {
-                                        if c == '\n' {
-                                            row += 1;
-                                            column = 0;
-                                        } else {
-                                            column += 1;
-                                        }
-                                    }
-
-                                    tree_sitter::Point { row, column }
-                                },
-                            };
-                            entry.php_tree.edit(&input_edit);
-                            entry.comments_tree.edit(&input_edit);
-                            entry
-                                .contents
-                                .replace_range(start_byte..end_byte, &change.text);
-                        } else {
-                            self.client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    format!("didChange invalid ranges {:?}", &r),
-                                )
-                                .await;
-                        }
-                    } else {
-                        entry.contents = change.text.clone();
+                for c in data.content_changes {
+                    match entry.change(c) {
+                        Err(e) => self.client.log_message(MessageType::ERROR, e).await,
+                        _ => {},
                     }
                 }
 
-                entry.php_tree = data_guard
-                    .php_parser
-                    .parse(&entry.contents, Some(&entry.php_tree))
-                    .unwrap();
+                let (php_tree, comments_tree) = parse(
+                    (&mut data_guard.php_parser, &mut data_guard.phpdoc_parser),
+                    &entry.contents,
+                    (Some(&entry.php_tree), Some(&entry.comments_tree)),
+                );
 
-                let comment_ranges =
-                    get_comment_ranges(entry.php_tree.root_node(), &entry.contents);
-                data_guard
-                    .phpdoc_parser
-                    .set_included_ranges(&comment_ranges)
-                    .unwrap();
-                entry.comments_tree = data_guard
-                    .phpdoc_parser
-                    .parse(&entry.contents, Some(&entry.comments_tree))
-                    .unwrap();
+                entry.php_tree = php_tree;
+                entry.comments_tree = comments_tree;
 
                 let diagnostics = get_tree_diagnostics(entry.php_tree.root_node(), &entry.contents);
                 self.client
