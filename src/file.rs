@@ -5,9 +5,11 @@ use tree_sitter_php::language_php;
 
 use std::error::Error;
 use std::fmt::Display;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::compat::to_point;
+use crate::types::Type;
+use crate::php_namespace::PhpNamespace;
 
 pub struct FileData {
     pub contents: String,
@@ -74,6 +76,48 @@ impl FileData {
         }
 
         Ok(())
+    }
+
+    /// Type definitions.
+    ///
+    /// Includes the following:
+    /// - Classes and their methods
+    /// - Trait definitions
+    /// - Interface definitions
+    /// - Method signatures
+    /// - Function signatures
+    pub fn types(&self, ns: Arc<PhpNamespace>) -> Vec<Type> {
+        let mut ts = Vec::new();
+        let root_node = self.php_tree.root_node();
+        let mut cursor = root_node.walk();
+        if !cursor.goto_first_child() {
+            return Vec::new();
+        }
+
+        let mut stack = Vec::with_capacity(50);
+        stack.push(cursor.node());
+        while cursor.goto_next_sibling() {
+            stack.push(cursor.node());
+        }
+
+        while let Some(node) = stack.pop() {
+            let kind = node.kind();
+            if kind == "class_declaration" {
+
+            } else if kind == "function_declaration" {
+
+            } else if kind == "trait_declaration" {
+
+            } else if kind == "interface_declaration" {
+
+            }
+
+            for c in node.children(&mut cursor) {
+                stack.push(c);
+            }
+        }
+
+        ts
     }
 }
 

@@ -6,8 +6,10 @@ mod backend;
 mod code_action;
 mod compat;
 mod composer;
+mod diagnostics;
 mod file;
 mod php_namespace;
+mod types;
 
 #[tokio::main]
 async fn main() {

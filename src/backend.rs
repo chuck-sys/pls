@@ -17,9 +17,10 @@ use std::sync::OnceLock;
 
 use crate::code_action::changes_phpecho;
 use crate::compat::*;
-use crate::composer::Autoload;
+use crate::composer::{Autoload, get_composer_files};
 use crate::file::{parse, FileData};
 use crate::php_namespace::PhpNamespace;
+use crate::diagnostics::get_tree_diagnostics;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -377,99 +378,6 @@ fn supported_capabilities() -> &'static ServerCapabilities {
     })
 }
 
-fn missing_query() -> &'static Query {
-    static Q: OnceLock<Query> = OnceLock::new();
-    Q.get_or_init(|| Query::new(&language_php(), "(MISSING) @missings").unwrap())
-}
-
-fn error_query() -> &'static Query {
-    static Q: OnceLock<Query> = OnceLock::new();
-    Q.get_or_init(|| Query::new(&language_php(), "(ERROR) @error").unwrap())
-}
-
-/**
- * Composer files paths should always exist.
- *
- * Please remember to check existence because there is a chance that it gets deleted.
- */
-fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> LspResult<Vec<PathBuf>> {
-    let mut composer_files = vec![];
-    for folder in workspace_folders {
-        if let Ok(path) = folder.uri.to_file_path() {
-            let composer_file = path.join("composer.json");
-            if !composer_file.exists() {
-                continue;
-            }
-
-            composer_files.push(composer_file);
-        } else {
-            continue;
-        }
-    }
-
-    Ok(composer_files)
-}
-
-fn get_tree_diagnostics(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
-    let mut missings = get_tree_diagnostics_missing(node, content);
-    let errors = get_tree_diagnostics_errors(node, content);
-
-    missings.extend(errors);
-
-    missings
-}
-
-fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
-    let query = missing_query();
-    let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(query, node, content.as_bytes());
-
-    let mut diagnostics = Vec::new();
-    while let Some((m, _)) = captures.next() {
-        for c in m.captures.iter() {
-            let sexp = c.node.to_sexp();
-            diagnostics.push(Diagnostic {
-                range: to_range(&c.node.range()),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("ts".to_string()),
-                message: sexp[1..sexp.len() - 1].to_string(),
-                related_information: None,
-                tags: None,
-                data: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
-fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
-    let query = error_query();
-    let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(query, node, content.as_bytes());
-
-    let mut diagnostics = Vec::new();
-    while let Some((m, _)) = captures.next() {
-        for c in m.captures.iter() {
-            diagnostics.push(Diagnostic {
-                range: to_range(&c.node.range()),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("ts".to_string()),
-                message: format!("UNEXPECTED: {}", &content[c.node.byte_range()]),
-                related_information: None,
-                tags: None,
-                data: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
@@ -503,7 +411,7 @@ impl LanguageServer for Backend {
                 .await;
         }
 
-        let composer_files = get_composer_files(&workspace_folders)?;
+        let composer_files = get_composer_files(&workspace_folders);
         self.read_composer_files(composer_files).await;
 
         Ok(InitializeResult {
@@ -700,6 +608,10 @@ impl LanguageServer for Backend {
             Ok(None)
         }
     }
+
+    async fn goto_definition(&self, params: GotoDefinitionParams) -> LspResult<Option<GotoDefinitionResponse>> {
+        Ok(Some(GotoDefinitionResponse::Link(Vec::new())))
+    }
 }
 
 #[cfg(test)]
@@ -709,7 +621,6 @@ mod test {
     use tree_sitter_php::language_php;
 
     use super::document_symbols;
-    use super::get_tree_diagnostics;
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -774,11 +685,5 @@ mod test {
             SymbolKind::CONSTRUCTOR,
             actual_symbols[1].children.as_ref().unwrap()[1].kind
         );
-    }
-
-    #[test]
-    fn no_diags() {
-        let tree = parser().parse(SOURCE, None).unwrap();
-        assert_eq!(0, get_tree_diagnostics(tree.root_node(), SOURCE).len());
     }
 }

@@ -1,5 +1,7 @@
+use tower_lsp::lsp_types::*;
+
 use serde::Deserialize;
-use serde_json::{Error as SerdeError, Map as SerdeMap, Value as SerdeValue};
+use serde_json::Error as SerdeError;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -94,6 +96,29 @@ impl Autoload {
 
         Ok(Self { psr4: psr4_ret })
     }
+}
+
+/**
+ * Composer files paths should always exist.
+ *
+ * Please remember to check existence because there is a chance that it gets deleted.
+ */
+pub fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> Vec<PathBuf> {
+    let mut composer_files = vec![];
+    for folder in workspace_folders {
+        if let Ok(path) = folder.uri.to_file_path() {
+            let composer_file = path.join("composer.json");
+            if !composer_file.exists() {
+                continue;
+            }
+
+            composer_files.push(composer_file);
+        } else {
+            continue;
+        }
+    }
+
+    composer_files
 }
 
 #[cfg(test)]
