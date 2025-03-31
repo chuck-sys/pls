@@ -2,13 +2,11 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
 use tokio::sync::RwLock;
-
-use regex::Regex;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -18,59 +16,10 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::composer::Autoload;
+use crate::code_action::changes_phpecho;
 use crate::php_namespace::PhpNamespace;
-
-struct FileData {
-    contents: String,
-    php_tree: Tree,
-    comments_tree: Tree,
-    version: i32,
-}
-
-/// Convert character offset into a position.
-///
-/// If the offset is outside the contents given, return the last position of the file.
-fn offset_to_position(contents: &str, mut offset: usize) -> Position {
-    let mut line = 0;
-    let mut character = 0;
-    for c in contents.chars() {
-        if offset == 0 {
-            return Position { line, character };
-        }
-
-        if c == '\n' {
-            line += 1;
-            character = 0;
-        } else {
-            character += 1;
-        }
-
-        offset -= 1;
-    }
-
-    Position { line, character }
-}
-
-fn to_position(point: &tree_sitter::Point) -> Position {
-    Position {
-        line: point.row as u32,
-        character: point.column as u32,
-    }
-}
-
-fn to_point(position: &Position) -> tree_sitter::Point {
-    tree_sitter::Point {
-        row: position.line as usize,
-        column: position.character as usize,
-    }
-}
-
-fn to_range(range: &tree_sitter::Range) -> Range {
-    Range {
-        start: to_position(&range.start_point),
-        end: to_position(&range.end_point),
-    }
-}
+use crate::file::{FileData, byte_offset};
+use crate::compat::*;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -273,33 +222,6 @@ fn document_symbols(root_node: &Node, file_contents: &str) -> Vec<DocumentSymbol
     ret
 }
 
-/// Get byte offset given some row and column position in a file.
-///
-/// For example, line 0 character 0 should have offset of 0 (0-indexing). We don't check that the
-/// column is within the current line (e.g. line 0 character 2000 gives offset of 2000 even if the
-/// line isn't that long).
-///
-/// Return None if the position is invalid (i.e. not in the file, out of range of current line,
-/// etc.)
-fn byte_offset(text: &str, r: &Position) -> Option<usize> {
-    let mut current_line = 0;
-    let mut current_offset = 0usize;
-
-    for c in text.chars() {
-        if current_line == r.line {
-            return Some(current_offset + r.character as usize);
-        }
-
-        if c == '\n' {
-            current_line += 1;
-        }
-
-        current_offset += 1;
-    }
-
-    None
-}
-
 struct BackendData {
     php_parser: Parser,
     phpdoc_parser: Parser,
@@ -455,11 +377,6 @@ fn supported_capabilities() -> &'static ServerCapabilities {
     })
 }
 
-fn phpecho_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap())
-}
-
 fn comment_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();
     Q.get_or_init(|| Query::new(&language_php(), "(comment)").unwrap())
@@ -473,32 +390,6 @@ fn missing_query() -> &'static Query {
 fn error_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();
     Q.get_or_init(|| Query::new(&language_php(), "(ERROR) @error").unwrap())
-}
-
-fn changes_phpecho(uri: &Url, file_data: &FileData) -> Option<DocumentChanges> {
-    let mut edits = vec![];
-    let text_document = OptionalVersionedTextDocumentIdentifier {
-        uri: uri.clone(),
-        version: Some(file_data.version),
-    };
-
-    let re = phpecho_re();
-    for captures in re.captures_iter(&file_data.contents) {
-        let m = captures.get(0).unwrap();
-        let range = Range {
-            start: offset_to_position(&file_data.contents, m.start()),
-            end: offset_to_position(&file_data.contents, m.end()),
-        };
-
-        let trimmed = captures.get(1).unwrap().as_str().trim_end();
-        let new_text = format!("<?= {} ?>", trimmed);
-        edits.push(OneOf::Left(TextEdit { range, new_text }));
-    }
-
-    Some(DocumentChanges::Edits(vec![TextDocumentEdit {
-        text_document,
-        edits,
-    }]))
 }
 
 /**
@@ -828,8 +719,8 @@ impl LanguageServer for Backend {
         let mut responses = vec![];
         let data_guard = self.data.read().await;
         if let Some(file_data) = data_guard.file_trees.get(&params.text_document.uri) {
-            if file_data.contents.contains("<?php echo ") {
-                let document_changes = changes_phpecho(&params.text_document.uri, file_data);
+            if params.range.start == params.range.end && file_data.contents.contains("<?php echo ") {
+                let document_changes = changes_phpecho(&params.text_document.uri, &file_data.contents, file_data.version);
                 let action = CodeAction {
                     title: "Convert `<?php echo ` into `<?=`".to_string(),
                     kind: Some(CodeActionKind::SOURCE),
@@ -887,19 +778,8 @@ mod test {
     use tree_sitter::Parser;
     use tree_sitter_php::language_php;
 
-    use super::byte_offset;
-    use super::changes_phpecho;
     use super::document_symbols;
     use super::get_tree_diagnostics;
-
-    macro_rules! unwrap_enum {
-        ($value:expr, $variant:path) => {
-            match $value {
-                $variant(inner) => inner,
-                _ => unreachable!(),
-            }
-        };
-    }
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -908,65 +788,6 @@ mod test {
             .expect("error loading PHP grammar");
 
         parser
-    }
-
-    #[test]
-    fn will_change_phpechos() {
-        use super::FileData;
-
-        let contents = "<?php   echo   addslashes('evil evil')  ;    ?>
-
-
-            <?php echo 34; ?>";
-        let tree = parser().parse(contents, None).unwrap();
-        let uri = Url::parse("https://google.ca").unwrap();
-        let version = 1;
-        let file_data = FileData {
-            contents: contents.to_string(),
-            php_tree: tree.clone(),
-            comments_tree: tree.clone(), // doesn't need the comments
-            version,
-        };
-
-        let edits = unwrap_enum!(
-            changes_phpecho(&uri, &file_data).unwrap(),
-            DocumentChanges::Edits
-        )[0]
-        .edits
-        .clone();
-        let edit1 = unwrap_enum!(&edits[0], OneOf::Left);
-        let edit2 = unwrap_enum!(&edits[1], OneOf::Left);
-
-        assert_eq!(&edit1.new_text, "<?= addslashes('evil evil') ?>");
-        assert_eq!(
-            &edit1.range.start,
-            &Position {
-                line: 0,
-                character: 0,
-            }
-        );
-        assert_eq!(
-            &edit1.range.end,
-            &Position {
-                line: 0,
-                character: 47,
-            }
-        );
-        assert_eq!(&edit2.new_text, "<?= 34 ?>");
-        assert_eq!(
-            &edit2.range.start,
-            &Position {
-                line: 3,
-                character: 12,
-            }
-        );
-        assert_eq!(
-            &edit2.range.end,
-            &Position {
-                line: 3,
-                character: 29,
-            }
-        );
     }
 
     const SOURCE: &'static str = "<?php
@@ -992,44 +813,6 @@ mod test {
                 {
                 }
             }";
-
-    #[test]
-    fn valid_byte_offsets() {
-        let valids = [
-            (
-                Position {
-                    line: 0,
-                    character: 0,
-                },
-                0usize,
-            ),
-            (
-                Position {
-                    line: 1,
-                    character: 0,
-                },
-                6usize,
-            ),
-        ];
-
-        let s = SOURCE.to_string();
-        for (pos, expected) in valids {
-            assert_eq!(expected, byte_offset(&s, &pos).unwrap());
-        }
-    }
-
-    #[test]
-    fn invalid_byte_offsets() {
-        let invalids = [Position {
-            line: 200,
-            character: 10,
-        }];
-
-        let s = SOURCE.to_string();
-        for invalid_position in invalids {
-            assert_eq!(None, byte_offset(&s, &invalid_position));
-        }
-    }
 
     #[test]
     fn get_symbols() {

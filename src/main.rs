@@ -3,7 +3,10 @@ use std::env;
 use tower_lsp::{LspService, Server};
 
 mod backend;
+mod code_action;
+mod compat;
 mod composer;
+mod file;
 mod php_namespace;
 
 #[tokio::main]
