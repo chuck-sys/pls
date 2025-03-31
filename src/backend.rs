@@ -15,11 +15,11 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::composer::Autoload;
 use crate::code_action::changes_phpecho;
-use crate::php_namespace::PhpNamespace;
-use crate::file::{FileData, parse};
 use crate::compat::*;
+use crate::composer::Autoload;
+use crate::file::{parse, FileData};
+use crate::php_namespace::PhpNamespace;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -580,7 +580,7 @@ impl LanguageServer for Backend {
                 for c in data.content_changes {
                     match entry.change(c) {
                         Err(e) => self.client.log_message(MessageType::ERROR, e).await,
-                        _ => {},
+                        _ => {}
                     }
                 }
 
@@ -644,8 +644,13 @@ impl LanguageServer for Backend {
         let mut responses = vec![];
         let data_guard = self.data.read().await;
         if let Some(file_data) = data_guard.file_trees.get(&params.text_document.uri) {
-            if params.range.start == params.range.end && file_data.contents.contains("<?php echo ") {
-                let document_changes = changes_phpecho(&params.text_document.uri, &file_data.contents, file_data.version);
+            if params.range.start == params.range.end && file_data.contents.contains("<?php echo ")
+            {
+                let document_changes = changes_phpecho(
+                    &params.text_document.uri,
+                    &file_data.contents,
+                    file_data.version,
+                );
                 let action = CodeAction {
                     title: "Convert `<?php echo ` into `<?=`".to_string(),
                     kind: Some(CodeActionKind::SOURCE),

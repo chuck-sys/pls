@@ -1,11 +1,11 @@
 use tower_lsp::lsp_types::*;
 
-use tree_sitter::{Tree, InputEdit, Parser, Query, QueryCursor, Node, StreamingIterator};
+use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
 use tree_sitter_php::language_php;
 
-use std::sync::OnceLock;
 use std::error::Error;
 use std::fmt::Display;
+use std::sync::OnceLock;
 
 use crate::compat::to_point;
 
@@ -26,7 +26,9 @@ impl Error for FileError {}
 impl Display for FileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileError::InvalidFileRange(range) => write!(f, "file range {:?} isn't a valid byte offset", range),
+            FileError::InvalidFileRange(range) => {
+                write!(f, "file range {:?} isn't a valid byte offset", range)
+            }
         }
     }
 }
@@ -62,12 +64,11 @@ impl FileData {
                 };
                 self.php_tree.edit(&input_edit);
                 self.comments_tree.edit(&input_edit);
-                self
-                    .contents
+                self.contents
                     .replace_range(start_byte..end_byte, &event.text);
-                } else {
-                    return Err(FileError::InvalidFileRange(r));
-                }
+            } else {
+                return Err(FileError::InvalidFileRange(r));
+            }
         } else {
             self.contents = event.text.clone();
         }
@@ -95,7 +96,11 @@ fn get_comment_ranges(node: Node<'_>, contents: &str) -> Vec<tree_sitter::Range>
     ranges
 }
 
-pub fn parse((php, phpdoc): (&mut Parser, &mut Parser), contents: &str, (php_tree, doc_tree): (Option<&Tree>, Option<&Tree>)) -> (Tree, Tree) {
+pub fn parse(
+    (php, phpdoc): (&mut Parser, &mut Parser),
+    contents: &str,
+    (php_tree, doc_tree): (Option<&Tree>, Option<&Tree>),
+) -> (Tree, Tree) {
     let php_tree = php.parse(contents, php_tree).unwrap();
 
     let comment_ranges = get_comment_ranges(php_tree.root_node(), contents);
@@ -224,5 +229,4 @@ mod test {
             assert_eq!(None, byte_offset(&s, &invalid_position));
         }
     }
-
 }
