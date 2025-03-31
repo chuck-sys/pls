@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use crate::composer::Autoload;
 use crate::code_action::changes_phpecho;
 use crate::php_namespace::PhpNamespace;
-use crate::file::{FileData, byte_offset, parse};
+use crate::file::{FileData, parse};
 use crate::compat::*;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
@@ -517,13 +517,13 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "server initialized")
+            .log_message(MessageType::LOG, "server initialized")
             .await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
         self.client
-            .log_message(MessageType::LOG, "server thread has shutdown")
+            .log_message(MessageType::LOG, "server shutdown")
             .await;
         Ok(())
     }
