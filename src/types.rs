@@ -127,50 +127,92 @@ impl Type {
     /// Return true if we are the subtype of another.
     ///
     /// For example, the type `array<int>|false|string` contains the subtypes `Literal(False)`,
-    /// `Array<int>`, and `String`.
+    /// `Array<int>`, and `String`. It also contains the subtype `array<int>|string` and all other
+    /// combinations of those.
     ///
     /// Note that if both types are the same, we will always return `true`.
-    pub fn is_subtype(&self, other: &Self) -> bool {
+    ///
+    /// Assume that both types are normalized.
+    pub fn is_subtype_of(&self, other: &Self) -> bool {
         if self == other {
             return true;
         }
 
-        match self {
-            Self::Or(Or(types)) => types.contains(other),
+        match other {
+            Self::Or(Or(types)) => {
+                match self {
+                    Self::Or(Or(my_types)) => {
+                        for t in my_types {
+                            if !types.contains(t) {
+                                return false;
+                            }
+                        }
+
+                        true
+                    }
+                    x => types.contains(x),
+                }
+            },
             x => x == other,
         }
     }
 
     /// Flatten a (perhaps) overly complicated type.
     ///
-    /// Types aren't normalized when created, and must be normalized manually. Uses DFS.
+    /// Types aren't normalized when created, and must be normalized manually. Uses DFS and
+    /// recursion. Thus, we might run out of stack space if we come across a particularly egregious
+    /// case of a nested type.
+    ///
+    /// TODO Use stack-based DFS instead of recursive calls.
     ///
     /// - Turns `Nullable` into `Or(...)`
     /// - Turns nested `Or(...Or(...))` into singular `Or(...)` statements
     /// - Turns nested `Union(...Union(...))` into singular `Union(...)` statements
+    /// - Turns nested `Or(...)` with singular element into that singular element
+    /// - Turns nested `Union(...)` with singular element into that singular element
     fn normalize(&self) -> Self {
         match self {
             Self::Union(Union(types)) => {
+                if types.len() == 1 {
+                    return types[0].normalize();
+                }
+
                 let mut ts = Vec::with_capacity(types.len());
                 for t in types {
                     let t = t.normalize();
                     if let Self::Union(Union(more_types)) = t {
-                        ts.extend(more_types);
+                        for x in more_types {
+                            if !ts.contains(&x) {
+                                ts.push(x);
+                            }
+                        }
                     } else {
-                        ts.push(t);
+                        if !ts.contains(&t) {
+                            ts.push(t);
+                        }
                     }
                 }
 
                 Self::Union(Union(ts))
             }
             Self::Or(Or(types)) => {
+                if types.len() == 1 {
+                    return types[0].normalize();
+                }
+
                 let mut ts = Vec::with_capacity(types.len());
                 for t in types {
                     let t = t.normalize();
                     if let Self::Or(Or(more_types)) = t {
-                        ts.extend(more_types);
+                        for x in more_types {
+                            if !ts.contains(&x) {
+                                ts.push(x);
+                            }
+                        }
                     } else {
-                        ts.push(t);
+                        if !ts.contains(&t) {
+                            ts.push(t);
+                        }
                     }
                 }
 
@@ -186,17 +228,72 @@ impl Type {
 
 #[cfg(test)]
 mod test {
-    use super::{Type, Scalar, Or, Nullable};
+    use super::{Type, Scalar, Or, Nullable, Union};
+
+    macro_rules! nullable {
+        ($e:expr) => {
+            Type::Nullable(Nullable(Box::new($e)))
+        }
+    }
+
+    macro_rules! union {
+        ($($e:expr),+) => {
+            Type::Union(Union(vec![$($e),+]))
+        }
+    }
+
+    macro_rules! or {
+        ($($e:expr),+) => {
+            Type::Or(Or(vec![$($e),+]))
+        }
+    }
+
+    macro_rules! scalar {
+        ($s:ident) => {
+            Type::Scalar(Scalar::$s)
+        }
+    }
 
     #[test]
     fn nullable_eq() {
-        let a = Type::Nullable(Nullable(Box::new(Type::Scalar(Scalar::Integer))));
-        let b = Type::Or(Or(vec![
-            Type::Scalar(Scalar::Null),
-            Type::Scalar(Scalar::Integer),
-        ]));
+        let a = nullable!(scalar!(Integer));
+        let b = or!(scalar!(Null), scalar!(Integer));
         assert_ne!(a, b);
         assert_eq!(a.normalize(), b);
         assert_eq!(a.normalize(), b.normalize());
+    }
+
+    #[test]
+    fn nested_normalization() {
+        let a = nullable!(or!(or!(scalar!(Integer), scalar!(Float), scalar!(Null)), scalar!(Boolean)));
+        assert_eq!(a.normalize(), or!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Boolean)));
+        let b = union!(union!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Null)), scalar!(Boolean));
+        assert_eq!(b.normalize(), union!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Boolean)));
+    }
+
+    #[test]
+    fn one_element_norm() {
+        let a = or!(or!(or!(scalar!(Integer))));
+        assert_eq!(a.normalize(), scalar!(Integer));
+        let a = union!(union!(or!(union!(scalar!(Integer)))));
+        assert_eq!(a.normalize(), scalar!(Integer));
+    }
+
+    #[test]
+    fn is_subtype_of() {
+        let parent = nullable!(or!(or!(scalar!(Integer), scalar!(Float), scalar!(Null)), scalar!(Boolean))).normalize();
+        let children = [
+            or!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Boolean)),
+            scalar!(Float),
+            scalar!(Integer),
+            scalar!(Null),
+            or!(scalar!(Boolean), scalar!(Float)),
+            or!(scalar!(Boolean), scalar!(Float), or!(scalar!(Null))),
+        ];
+
+        for child in children {
+            let child = child.normalize();
+            assert!(child.is_subtype_of(&parent));
+        }
     }
 }
