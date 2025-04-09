@@ -30,7 +30,7 @@ pub struct Nullable(Box<Type>);
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Type {
-    Class(Box<Class>),
+    Class(Class),
     Enum,
     Function(Box<Function>),
     Trait,
@@ -76,12 +76,12 @@ impl PartialEq for Union {
         }
 
         for e in self.0.iter() {
-            if !other.0.contains(&e) {
+            if !other.0.contains(e) {
                 return false;
             }
         }
 
-        return true;
+        true
     }
 }
 
@@ -92,12 +92,12 @@ impl PartialEq for Or {
         }
 
         for e in self.0.iter() {
-            if !other.0.contains(&e) {
+            if !other.0.contains(e) {
                 return false;
             }
         }
 
-        return true;
+        true
     }
 }
 

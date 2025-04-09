@@ -86,7 +86,7 @@ impl FileData {
     /// - Interface definitions
     /// - Method signatures
     /// - Function signatures
-    pub fn types(&self, ns: Arc<PhpNamespace>) -> Vec<Type> {
+    pub fn types(&self) -> Vec<Type> {
         let mut ts = Vec::new();
         let root_node = self.php_tree.root_node();
         let mut cursor = root_node.walk();
@@ -102,6 +102,8 @@ impl FileData {
 
         while let Some(node) = stack.pop() {
             let kind = node.kind();
+            let prev_node = node.prev_sibling();
+
             if kind == "class_declaration" {
 
             } else if kind == "function_declaration" {

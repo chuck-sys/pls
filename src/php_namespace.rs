@@ -16,7 +16,7 @@ impl PhpNamespace {
             }
         }
 
-        return true;
+        true
     }
 
     pub fn push(&mut self, s: &str) {
