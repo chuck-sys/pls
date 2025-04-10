@@ -9,6 +9,7 @@ mod composer;
 mod diagnostics;
 mod file;
 mod php_namespace;
+mod scope;
 mod types;
 
 #[tokio::main]

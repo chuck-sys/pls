@@ -42,6 +42,13 @@ pub enum AutoloadError {
     NoPSR4,
 }
 
+#[derive(Debug)]
+pub enum ResolutionError {
+    NamespaceNotFound(PhpNamespace),
+    NamespaceTooShort(PhpNamespace),
+    FileNotFound(String),
+}
+
 impl PartialEq for AutoloadError {
     fn eq(&self, other: &Self) -> bool {
         self.to_string() == other.to_string()
@@ -64,7 +71,18 @@ impl Display for AutoloadError {
     }
 }
 
+impl Display for ResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResolutionError::FileNotFound(s) => write!(f, "file `{}` not found", s),
+            ResolutionError::NamespaceNotFound(ns) => write!(f, "namespace `{}` not found", ns),
+            ResolutionError::NamespaceTooShort(ns) => write!(f, "namespace `{}` is too short", ns),
+        }
+    }
+}
+
 impl Error for AutoloadError {}
+impl Error for ResolutionError {}
 
 type PSR4 = HashMap<PhpNamespace, Vec<PathBuf>>;
 
@@ -74,6 +92,55 @@ pub struct Autoload {
 }
 
 impl Autoload {
+    pub fn matching_ns(&self, other: &PhpNamespace) -> Vec<PhpNamespace> {
+        self.psr4
+            .keys()
+            .filter_map(|ns| ns.is_within(other).then_some(ns.clone()))
+            .collect()
+    }
+
+    /// Resolves a namespace into a directory name.
+    ///
+    /// We check that the directory exists. We stop at the first valid path.
+    pub fn resolve_as_dir(&self, ns: PhpNamespace) -> Result<PathBuf, ResolutionError> {
+        let mut matching = self.matching_ns(&ns);
+        matching.sort_by_key(|ns| ns.len());
+
+        for k in matching.iter().rev() {
+            let paths = self.psr4.get(&k).ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
+            for path in paths {
+                let x = k.as_pathbuf(path, &ns);
+                if x.is_dir() {
+                    return Ok(x);
+                }
+            }
+        }
+
+        Err(ResolutionError::NamespaceNotFound(ns.clone()))
+    }
+
+    /// Resolves a namespace into a file name.
+    ///
+    /// We check that the file exists. We stop at the first valid path.
+    pub fn resolve_as_file(&self, mut ns: PhpNamespace) -> Result<PathBuf, ResolutionError> {
+        let mut matching = self.matching_ns(&ns);
+        matching.sort_by_key(|ns| ns.len());
+
+        let name = format!("{:}.php", ns.pop().ok_or(ResolutionError::NamespaceTooShort(ns.clone()))?);
+
+        for k in matching.iter().rev() {
+            let paths = self.psr4.get(&k).ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
+            for path in paths {
+                let x = k.as_pathbuf(path, &ns).join(&name);
+                if x.exists() {
+                    return Ok(x);
+                }
+            }
+        }
+
+        Err(ResolutionError::NamespaceNotFound(ns.clone()))
+    }
+
     pub fn from_reader<R>(rdr: R) -> Result<Self, AutoloadError>
     where
         R: std::io::Read,

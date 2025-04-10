@@ -1,13 +1,18 @@
 use std::convert::Infallible;
 use std::str::FromStr;
+use std::path::PathBuf;
 
 /**
  * A PHP namespace that starts from the root.
  */
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct PhpNamespace(Vec<String>);
 
 impl PhpNamespace {
+    pub fn empty() -> Self {
+        Self(vec![])
+    }
+
     pub fn is_within(&self, other: &Self) -> bool {
         let zipped = self.0.iter().zip(other.0.iter());
         for (a, b) in zipped {
@@ -23,11 +28,40 @@ impl PhpNamespace {
         self.0.push(s.to_string());
     }
 
+    pub fn pop(&mut self) -> Option<String> {
+        self.0.pop()
+    }
+
     pub fn extend<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = String>,
     {
         self.0.extend(iter);
+    }
+
+    /// Number of segments within a namespace.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn difference(&self, other: &Self) -> Self {
+        if !other.is_within(self) {
+            return Self::empty();
+        }
+
+        // Because of the `is_within()` check, we know that we are always longer (or at least at
+        // the same length) as the other namespace.
+        Self(self.0[other.len()..].iter().map(|s| s.to_owned()).collect())
+    }
+
+    pub fn as_pathbuf(&self, equiv: &PathBuf, full: &Self) -> PathBuf {
+        let diff = full.difference(self);
+        let mut file = equiv.clone();
+        for segment in diff.0 {
+            file.push(segment);
+        }
+
+        file
     }
 }
 
