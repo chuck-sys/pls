@@ -202,6 +202,30 @@ mod test {
     use super::AutoloadError;
     use super::PhpNamespace;
 
+    macro_rules! path {
+        ($s:expr) => {
+            PathBuf::from_str($s).unwrap()
+        }
+    }
+
+    macro_rules! autoload {
+        ($($as:literal => $xs:expr),*) => ({
+            let mut m = HashMap::new();
+
+            $( m.insert(PhpNamespace::from_str($as).unwrap(), $xs.map(|s| path!(s)).into()); )*
+
+            Autoload {
+                psr4: m,
+            }
+        })
+    }
+
+    macro_rules! ns {
+        ($ns:literal) => {
+            PhpNamespace::from_str($ns).unwrap()
+        }
+    }
+
     fn to_cursor(v: Value) -> Cursor<Vec<u8>> {
         Cursor::new(v.to_string().into())
     }
@@ -265,15 +289,15 @@ mod test {
 
         assert_eq!(a.psr4.len(), 2);
 
-        let monolog = PhpNamespace::from_str("Monolog\\").unwrap();
-        let vns = PhpNamespace::from_str("Vendor\\Namespace\\").unwrap();
+        let monolog = ns!("Monolog\\");
+        let vns = ns!("Vendor\\Namespace\\");
 
         assert!(a.psr4.contains_key(&monolog));
         assert!(a.psr4.contains_key(&vns));
 
-        let src = PathBuf::from_str("src/").unwrap();
-        let vendor = PathBuf::from_str("vendor/").unwrap();
-        let namespace = PathBuf::from_str("namespace/").unwrap();
+        let src = path!("src/");
+        let vendor = path!("vendor/");
+        let namespace = path!("namespace/");
 
         assert_eq!(a.psr4[&monolog], vec![src]);
         assert_eq!(a.psr4[&vns], vec![vendor, namespace]);
@@ -281,17 +305,13 @@ mod test {
 
     #[test]
     fn no_matching_ns() {
-        let a = Autoload {
-            psr4: HashMap::from([
-                      (PhpNamespace::from_str("Foo\\Bar\\").unwrap(),
-                       vec![PathBuf::from_str("src/foo/bar/").unwrap()]),
-                      (PhpNamespace::from_str("Koo\\Tar\\").unwrap(),
-                       vec![PathBuf::from_str("src/koo/tar/").unwrap()]),
-            ]),
+        let a = autoload! {
+            "Foo\\Bar\\" => ["src/foo/bar"],
+            "Koo\\Tar\\" => ["src/koo/tar"]
         };
         let finds = [
-            PhpNamespace::from_str("Ark\\Kaltsit\\").unwrap(),
-            PhpNamespace::from_str("Foo\\Ark\\Kaltsit\\").unwrap(),
+            ns!("Ark\\Kaltsit"),
+            ns!("Foo\\Ark\\Kaltsit\\"),
         ];
 
         for to_find in finds.iter() {
@@ -301,31 +321,24 @@ mod test {
 
     #[test]
     fn one_matching_ns() {
-        let a = Autoload {
-            psr4: HashMap::from([
-                      (PhpNamespace::from_str("Foo\\Bar\\").unwrap(),
-                       vec![PathBuf::from_str("src/foo/bar/").unwrap()]),
-                      (PhpNamespace::from_str("Koo\\Tar\\").unwrap(),
-                       vec![PathBuf::from_str("src/koo/tar/").unwrap()]),
-            ]),
+        let a = autoload! {
+            "Foo\\Bar\\" => ["src/foo/bar"],
+            "Koo\\Tar\\" => ["src/koo/tar"]
         };
-        let to_find = PhpNamespace::from_str("Foo\\Bar\\Ark\\Kaltsit\\").unwrap();
+        let to_find = ns!("Foo\\Bar\\Ark\\Kaltsit\\");
 
-        assert_eq!(a.matching_ns(&to_find), vec![PhpNamespace::from_str("Foo\\Bar\\").unwrap()]);
+        assert_eq!(a.matching_ns(&to_find), vec![ns!("Foo\\Bar\\")]);
     }
 
     #[test]
     fn php_storm_resolves() {
-        let a = Autoload {
-            psr4: HashMap::from([
-                      (PhpNamespace::from_str("PhpStorm\\").unwrap(),
-                       vec![PathBuf::from_str("phpstorm-stubs/").unwrap()]),
-            ]),
+        let a = autoload! {
+            "PhpStorm\\" => ["phpstorm-stubs/"]
         };
-        let to_find_dir = PhpNamespace::from_str("PhpStorm\\curl\\").unwrap();
-        let to_find_file = PhpNamespace::from_str("PhpStorm\\curl\\curl").unwrap();
+        let to_find_dir = ns!("PhpStorm\\curl\\");
+        let to_find_file = ns!("PhpStorm\\curl\\curl");
 
-        assert_eq!(a.resolve_as_dir(to_find_dir).unwrap(), PathBuf::from_str("phpstorm-stubs/curl/").unwrap());
-        assert_eq!(a.resolve_as_file(to_find_file).unwrap(), PathBuf::from_str("phpstorm-stubs/curl/curl.php").unwrap());
+        assert_eq!(a.resolve_as_dir(to_find_dir).unwrap(), path!("phpstorm-stubs/curl/"));
+        assert_eq!(a.resolve_as_file(to_find_file).unwrap(), path!("phpstorm-stubs/curl/curl.php"));
     }
 }
