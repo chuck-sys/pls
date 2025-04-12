@@ -3,9 +3,24 @@ use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, Query, QueryCursor, StreamingIterator};
 use tree_sitter_php::language_php;
 
+use serde::Deserialize;
+
 use std::sync::OnceLock;
 
 use crate::compat::to_range;
+
+#[derive(Deserialize)]
+pub struct DiagnosticsOptions {
+    pub syntax: bool
+}
+
+impl Default for DiagnosticsOptions {
+    fn default() -> Self {
+        Self {
+            syntax: true,
+        }
+    }
+}
 
 fn missing_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();

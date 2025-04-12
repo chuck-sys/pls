@@ -1,4 +1,4 @@
-use tower_lsp::jsonrpc::Result as LspResult;
+use tower_lsp::jsonrpc::{Result as LspResult, Error as LspError, ErrorCode as LspErrorCode};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
@@ -8,19 +8,22 @@ use tree_sitter_phpdoc::language as language_phpdoc;
 
 use tokio::sync::RwLock;
 
+use serde::Deserialize;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::borrow::Cow;
 
 use crate::code_action::changes_phpecho;
 use crate::compat::*;
 use crate::composer::{Autoload, get_composer_files};
 use crate::file::{parse, FileData};
 use crate::php_namespace::PhpNamespace;
-use crate::diagnostics::get_tree_diagnostics;
+use crate::diagnostics::{DiagnosticsOptions, get_tree_diagnostics};
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -252,8 +255,15 @@ impl BackendData {
     }
 }
 
+#[derive(Deserialize, Default)]
+struct InitializeOptions {
+    #[serde(default)]
+    diagnostics: DiagnosticsOptions,
+}
+
 pub struct Backend {
     client: Client,
+    init_options: RwLock<InitializeOptions>,
 
     data: RwLock<BackendData>,
 }
@@ -262,6 +272,7 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
             client,
+            init_options: RwLock::new(InitializeOptions::default()),
 
             data: RwLock::new(BackendData::new()),
         }
@@ -414,6 +425,15 @@ impl LanguageServer for Backend {
         let composer_files = get_composer_files(&workspace_folders);
         self.read_composer_files(composer_files).await;
 
+        if let Some(v) = params.initialization_options {
+            let init_options = &mut *self.init_options.write().await;
+            *init_options = serde_json::from_value(v).map_err(|e| LspError {
+                code: LspErrorCode::InvalidParams,
+                message: Cow::Borrowed("bad init options"),
+                data: Some(e.to_string().into()),
+            })?;
+        }
+
         Ok(InitializeResult {
             capabilities: supported_capabilities().clone(),
             server_info: Some(ServerInfo {
@@ -437,6 +457,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
+        let init_options = self.init_options.read().await;
         let data_guard = &mut *self.data.write().await;
         let (php_tree, comments_tree) = parse(
             (&mut data_guard.php_parser, &mut data_guard.phpdoc_parser),
@@ -444,14 +465,16 @@ impl LanguageServer for Backend {
             (None, None),
         );
 
-        let diagnostics = get_tree_diagnostics(php_tree.root_node(), &data.text_document.text);
-        self.client
-            .publish_diagnostics(
-                data.text_document.uri.clone(),
-                diagnostics,
-                Some(data.text_document.version),
-            )
-            .await;
+        if init_options.diagnostics.syntax {
+            let diagnostics = get_tree_diagnostics(php_tree.root_node(), &data.text_document.text);
+            self.client
+                .publish_diagnostics(
+                    data.text_document.uri.clone(),
+                    diagnostics,
+                    Some(data.text_document.version),
+                )
+                .await;
+        }
 
         data_guard.file_trees.insert(
             data.text_document.uri,
@@ -468,6 +491,7 @@ impl LanguageServer for Backend {
         // https://users.rust-lang.org/t/rwlock-is-confusing-me-and-or-mutable-borrow-counting/120492/2
         // we gently nudge the borrow checker to give us the actual &mut BackendData instead of
         // going through a DerefMut.
+        let init_options = self.init_options.read().await;
         let data_guard = &mut *self.data.write().await;
         match data_guard.file_trees.get_mut(&data.text_document.uri) {
             Some(entry) => {
@@ -501,14 +525,16 @@ impl LanguageServer for Backend {
                 entry.php_tree = php_tree;
                 entry.comments_tree = comments_tree;
 
-                let diagnostics = get_tree_diagnostics(entry.php_tree.root_node(), &entry.contents);
-                self.client
-                    .publish_diagnostics(
-                        data.text_document.uri.clone(),
-                        diagnostics,
-                        Some(data.text_document.version),
-                    )
-                    .await;
+                if init_options.diagnostics.syntax {
+                    let diagnostics = get_tree_diagnostics(entry.php_tree.root_node(), &entry.contents);
+                    self.client
+                        .publish_diagnostics(
+                            data.text_document.uri.clone(),
+                            diagnostics,
+                            Some(data.text_document.version),
+                        )
+                        .await;
+                }
             }
             None => {
                 self.client
