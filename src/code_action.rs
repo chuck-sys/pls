@@ -1,10 +1,19 @@
 use tower_lsp::lsp_types::*;
 
+use serde::{Serialize, Deserialize};
+
 use regex::Regex;
 
 use std::sync::OnceLock;
 
 use crate::file::offset_to_position;
+
+pub const phpecho_title: &'static str = "Convert `<?php echo` into `<?=`";
+
+#[derive(Serialize, Deserialize)]
+pub struct CodeActionValue {
+    pub uri: Url,
+}
 
 fn phpecho_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();

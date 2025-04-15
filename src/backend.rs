@@ -9,6 +9,7 @@ use tree_sitter_phpdoc::language as language_phpdoc;
 use tokio::sync::RwLock;
 
 use serde::Deserialize;
+use serde_json::json;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::borrow::Cow;
 
-use crate::code_action::changes_phpecho;
+use crate::code_action::{changes_phpecho, phpecho_title, CodeActionValue};
 use crate::compat::*;
 use crate::composer::{Autoload, get_composer_files};
 use crate::file::{parse, FileData};
@@ -381,7 +382,7 @@ fn supported_capabilities() -> &'static ServerCapabilities {
             work_done_progress_options: WorkDoneProgressOptions {
                 work_done_progress: Some(false),
             },
-            resolve_provider: Some(false),
+            resolve_provider: Some(true),
         })),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
@@ -580,24 +581,62 @@ impl LanguageServer for Backend {
         if let Some(file_data) = data_guard.file_trees.get(&params.text_document.uri) {
             if params.range.start == params.range.end && file_data.contents.contains("<?php echo ")
             {
-                let document_changes = changes_phpecho(
-                    &params.text_document.uri,
-                    &file_data.contents,
-                    file_data.version,
-                );
                 let action = CodeAction {
-                    title: "Convert `<?php echo ` into `<?=`".to_string(),
+                    title: phpecho_title.to_string(),
                     kind: Some(CodeActionKind::SOURCE),
-                    edit: Some(WorkspaceEdit {
-                        document_changes,
-                        ..WorkspaceEdit::default()
-                    }),
+                    data: Some(json!({"uri": params.text_document.uri})),
                     ..CodeAction::default()
                 };
                 responses.push(CodeActionOrCommand::CodeAction(action));
             }
         }
         Ok(Some(responses))
+    }
+
+    async fn code_action_resolve(&self, params: CodeAction) -> LspResult<CodeAction> {
+        if &params.title == phpecho_title {
+            if let Some(v) = params.data {
+                let v: CodeActionValue = serde_json::from_value(v).map_err(|e| LspError {
+                    code: LspErrorCode::InvalidParams,
+                    message: Cow::Borrowed("malformed code action data"),
+                    data: Some(e.to_string().into()),
+                })?;
+                let data_guard = self.data.read().await;
+                let file_data = data_guard.file_trees.get(&v.uri).ok_or(LspError {
+                    code: LspErrorCode::InternalError,
+                    message: Cow::Borrowed("could not find file data"),
+                    data: Some(v.uri.to_string().into()),
+                })?;
+
+                let document_changes = changes_phpecho(
+                    &v.uri,
+                    &file_data.contents,
+                    file_data.version,
+                );
+
+                Ok(CodeAction {
+                    title: phpecho_title.to_string(),
+                    kind: Some(CodeActionKind::SOURCE),
+                    edit: Some(WorkspaceEdit {
+                        document_changes,
+                        ..WorkspaceEdit::default()
+                    }),
+                    ..CodeAction::default()
+                })
+            } else {
+                Err(LspError {
+                    code: LspErrorCode::InvalidRequest,
+                    message: Cow::Borrowed("missing params data from code action"),
+                    data: None,
+                })
+            }
+        } else {
+            Err(LspError {
+                code: LspErrorCode::InvalidRequest,
+                message: Cow::Borrowed("unsupported code action resolve request"),
+                data: Some(params.title.into()),
+            })
+        }
     }
 
     async fn selection_range(
