@@ -24,7 +24,8 @@ use crate::compat::*;
 use crate::composer::{Autoload, get_composer_files};
 use crate::file::{parse, FileData};
 use crate::php_namespace::PhpNamespace;
-use crate::diagnostics::{DiagnosticsOptions, get_tree_diagnostics};
+use crate::diagnostics::DiagnosticsOptions;
+use crate::diagnostics;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -466,16 +467,21 @@ impl LanguageServer for Backend {
             (None, None),
         );
 
+        let mut diagnostics = vec![];
         if init_options.diagnostics.syntax {
-            let diagnostics = get_tree_diagnostics(php_tree.root_node(), &data.text_document.text);
-            self.client
-                .publish_diagnostics(
-                    data.text_document.uri.clone(),
-                    diagnostics,
-                    Some(data.text_document.version),
-                )
-                .await;
+            diagnostics.extend(diagnostics::syntax(php_tree.root_node(), &data.text_document.text));
         }
+        if init_options.diagnostics.undefined {
+            diagnostics.extend(diagnostics::undefined(php_tree.root_node(), &data.text_document.text));
+        }
+
+        self.client
+            .publish_diagnostics(
+                data.text_document.uri.clone(),
+                diagnostics,
+                Some(data.text_document.version),
+            )
+            .await;
 
         data_guard.file_trees.insert(
             data.text_document.uri,
@@ -526,16 +532,21 @@ impl LanguageServer for Backend {
                 entry.php_tree = php_tree;
                 entry.comments_tree = comments_tree;
 
+                let mut diagnostics = vec![];
                 if init_options.diagnostics.syntax {
-                    let diagnostics = get_tree_diagnostics(entry.php_tree.root_node(), &entry.contents);
-                    self.client
-                        .publish_diagnostics(
-                            data.text_document.uri.clone(),
-                            diagnostics,
-                            Some(data.text_document.version),
-                        )
-                        .await;
+                    diagnostics.extend(diagnostics::syntax(entry.php_tree.root_node(), &entry.contents));
                 }
+                if init_options.diagnostics.undefined {
+                    diagnostics.extend(diagnostics::undefined(entry.php_tree.root_node(), &entry.contents));
+                }
+
+                self.client
+                    .publish_diagnostics(
+                        data.text_document.uri.clone(),
+                        diagnostics,
+                        Some(data.text_document.version),
+                    )
+                    .await;
             }
             None => {
                 self.client
@@ -547,7 +558,7 @@ impl LanguageServer for Backend {
                         ),
                     )
                     .await;
-            }
+                }
         }
     }
 

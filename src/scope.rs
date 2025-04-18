@@ -1,4 +1,4 @@
-use crate::php_namespace::PhpNamespace;
+use std::collections::HashSet;
 
 /// A primitive way of capturing all non-shadowed variables.
 ///
@@ -8,6 +8,15 @@ use crate::php_namespace::PhpNamespace;
 /// $outer = 13;
 /// $clj = fn($x) => $x + $outer;
 /// ```
+#[derive(Clone)]
 pub struct Scope {
-    current_ns: Option<PhpNamespace>,
+    pub symbols: HashSet<String>,
+}
+
+impl Scope {
+    pub fn empty() -> Self {
+        Self {
+            symbols: HashSet::new(),
+        }
+    }
 }
