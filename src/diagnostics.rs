@@ -160,10 +160,10 @@ pub fn undefined(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
             }
         } else if kind == "compound_statement" {
             for child in node.children(&mut cursor) {
-                let problems = handle_statement(child, content, &mut scope);
-                diagnostics.extend(problems);
+                diagnostics.extend(handle_statement(child, content, &mut scope));
             }
         } else {
+            // FIXME: scope should be updated before pushing
             for child in node.children(&mut cursor) {
                 stack.push((child, scope.clone()));
             }
@@ -227,7 +227,7 @@ mod test {
     use tree_sitter::Parser;
     use tree_sitter_php::language_php;
 
-    use super::syntax;
+    use crate::scope::Scope;
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -265,6 +265,51 @@ mod test {
     #[test]
     fn no_diags() {
         let tree = parser().parse(SOURCE, None).unwrap();
-        assert_eq!(0, syntax(tree.root_node(), SOURCE).len());
+        assert_eq!(0, super::syntax(tree.root_node(), SOURCE).len());
+    }
+
+    #[test]
+    fn assignments_scoping() {
+        let src = "<?php
+        $var1 = 1 + 2;
+        $var2 = $var1 + $var2;
+        list($var3, $var4) = [$var1, $var4 + 2];
+        ";
+        let tree = parser().parse(src, None).unwrap();
+        let root_node = tree.root_node();
+        let mut cursor = root_node.walk();
+        let mut scope = Scope::empty();
+        let mut iter = root_node.children(&mut cursor);
+
+        // skip `<?php` tag
+        iter.next();
+
+        let stmt1 = iter.next().unwrap();
+        assert_eq!("expression_statement", stmt1.kind());
+        let diags = super::handle_statement(stmt1, src, &mut scope);
+        assert!(diags.is_empty());
+        assert_eq!(1, scope.symbols.len());
+
+        let stmt2 = iter.next().unwrap();
+        assert_eq!("expression_statement", stmt2.kind());
+        let diags = super::handle_statement(stmt2, src, &mut scope);
+        assert_eq!(1, diags.len());
+        let diag = &diags[0];
+        assert_eq!("undefined variable $var2", &diag.message);
+        assert_eq!(2, scope.symbols.len());
+
+        assert!(scope.symbols.contains("$var1"));
+        assert!(scope.symbols.contains("$var2"));
+
+        let stmt3 = iter.next().unwrap();
+        assert_eq!("expression_statement", stmt3.kind());
+        let diags = super::handle_statement(stmt3, src, &mut scope);
+        assert_eq!(1, diags.len());
+        let diag = &diags[0];
+        assert_eq!("undefined variable $var4", &diag.message);
+        assert_eq!(4, scope.symbols.len());
+
+        assert!(scope.symbols.contains("$var3"));
+        assert!(scope.symbols.contains("$var4"));
     }
 }
