@@ -108,14 +108,18 @@ fn handle_statement(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Dia
         return vec![];
     }
 
-    let mut stack = Vec::with_capacity(5);
     let mut diagnostics = Vec::with_capacity(2);
-    stack.push(cursor.node());
 
-    while let Some(n) = stack.pop() {
-        let kind = n.kind();
+    let kind = stmt.kind();
+    if kind == "if_statement" {
+        return handle_branch(stmt, content, scope);
+    }
+
+    for child in stmt.children(&mut cursor) {
+        let kind = child.kind();
+
         if kind == "assignment_expression" {
-            if let (Some(left), Some(right)) = (n.child_by_field_name("left"), n.child_by_field_name("right")) {
+            if let (Some(left), Some(right)) = (child.child_by_field_name("left"), child.child_by_field_name("right")) {
                 let symbols = expression_left(left, content);
                 let problems = expression_right(right, content, &scope);
 
@@ -126,9 +130,56 @@ fn handle_statement(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Dia
                 }
             }
         } else {
-            let problems = expression_right(n, content, &scope);
-            diagnostics.extend(problems);
+            diagnostics.extend(expression_right(child, content, &scope));
         }
+    }
+
+    diagnostics
+}
+
+fn handle_branch(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let mut cursor = stmt.walk();
+    let mut diagnostics = Vec::new();
+    let mut scopes = Vec::new();
+
+    if let Some(condition) = stmt.child_by_field_name("condition") {
+        let mut s = scope.clone();
+        // i'm pretty sure that you can also do assignments in conditionals
+        diagnostics.extend(handle_statement(condition, content, &mut s));
+        scopes.push(s);
+    }
+
+    if let Some(body) = stmt.child_by_field_name("body") {
+        let mut s = scope.clone();
+        for child in body.children(&mut cursor) {
+            diagnostics.extend(handle_statement(child, content, &mut s));
+        }
+        scopes.push(s);
+    }
+
+    for alt in stmt.children_by_field_name("alternative", &mut cursor) {
+        let kind = alt.kind();
+
+        if kind == "else_if_clause" {
+            if let Some(condition) = alt.child_by_field_name("condition") {
+                let mut s = scope.clone();
+                diagnostics.extend(handle_statement(condition, content, &mut s));
+                scopes.push(s);
+            }
+        }
+
+        if let Some(body) = alt.child_by_field_name("body") {
+            let mut s = scope.clone();
+            let mut cursor = body.walk();
+            for child in body.children(&mut cursor) {
+                diagnostics.extend(handle_statement(child, content, &mut s));
+            }
+            scopes.push(s);
+        }
+    }
+
+    for s in scopes {
+        scope.absorb(s);
     }
 
     diagnostics
@@ -138,6 +189,7 @@ pub fn undefined(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let mut cursor = node.walk();
     let mut diagnostics = Vec::new();
     let mut stack = Vec::with_capacity(50);
+
     stack.push((node, Scope::empty()));
 
     while let Some((node, mut scope)) = stack.pop() {
@@ -147,6 +199,7 @@ pub fn undefined(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
         } else if kind == "function_declaration" || kind == "method_declaration" {
             if kind == "method_declaration" {
                 scope.symbols.insert("$this".to_string());
+                scope.symbols.insert("self".to_string());
             }
 
             if let Some(params_node) = node.child_by_field_name("parameters") {
@@ -156,16 +209,54 @@ pub fn undefined(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
                 }
             }
             if let Some(body_node) = node.child_by_field_name("body") {
-                stack.push((body_node, scope.clone()));
+                stack.push((body_node, scope));
             }
         } else if kind == "compound_statement" {
             for child in node.children(&mut cursor) {
                 diagnostics.extend(handle_statement(child, content, &mut scope));
             }
+        } else if kind == "php_tag" {
+            // ignore
+        } else if kind == "for_statement" {
+            if let Some(init) = node.child_by_field_name("initialize") {
+                diagnostics.extend(handle_statement(init, content, &mut scope));
+            }
+
+            if let Some(cond) = node.child_by_field_name("condition") {
+                diagnostics.extend(handle_statement(cond, content, &mut scope));
+            }
+
+            if let Some(body) = node.child_by_field_name("body") {
+                stack.push((body, scope));
+            }
+        } else if kind == "foreach_statement" {
+            if let Some(iter) = node.child(0) {
+                diagnostics.extend(expression_right(iter, content, &mut scope));
+            }
+
+            if let Some(child) = node.child(1) {
+                if child.kind() == "pair" {
+                    for x in child.children(&mut cursor) {
+                        scope.symbols.insert(content[x.byte_range()].to_string());
+                    }
+                } else if child.kind() == "variable_name" {
+                    scope.symbols.insert(content[child.byte_range()].to_string());
+                }
+            }
+
+            if let Some(body) = node.child_by_field_name("body") {
+                stack.push((body, scope));
+            }
         } else {
-            // FIXME: scope should be updated before pushing
             for child in node.children(&mut cursor) {
-                stack.push((child, scope.clone()));
+                let kind = child.kind();
+                if kind == "expression_statement" {
+                    diagnostics.extend(handle_statement(child, content, &mut scope));
+                } else if kind == "if_statement" {
+                    diagnostics.extend(handle_branch(child, content, &mut scope));
+                } else {
+                    stack.push((child, scope.clone()));
+                }
             }
         }
     }
@@ -311,5 +402,62 @@ mod test {
 
         assert!(scope.symbols.contains("$var3"));
         assert!(scope.symbols.contains("$var4"));
+    }
+
+    #[test]
+    fn no_undefineds() {
+        let srcs = [
+            "<?php
+            $var1 = 1 + 2;
+            $var2 = $var1 + 3;",
+            "<?php
+            $var1 = 1 + 2;
+            class Foo {
+                private function x(): void {
+                    $var2 = $var1 + 2;
+                }
+            }",
+            "<?php
+            $var1 = 1;
+            if ($var1 === 2) {
+                $var2 = 3;
+                if ($var2 === 3) {}
+            } else {
+                $var3 = 4;
+            }
+            $var4 = $var3;"
+        ];
+
+        for src in srcs {
+            let tree = parser().parse(src, None).unwrap();
+            let root_node = tree.root_node();
+            let diags = super::undefined(root_node, src);
+            assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
+        }
+    }
+
+    #[test]
+    fn non_zero_undefineds() {
+        let srcs = [
+            "<?php
+            $var1 = 1 + 2;
+            $var2 = $var1 + $var2;",
+            "<?php
+            $var1 = 2;
+            if ($var2 == 5) {}",
+            "<?php
+            if (true) {
+                $var1 = 4;
+            } else {
+                $var2 = $var1;
+            }",
+        ];
+
+        for src in srcs {
+            let tree = parser().parse(src, None).unwrap();
+            let root_node = tree.root_node();
+            let diags = super::undefined(root_node, src);
+            assert!(!diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
+        }
     }
 }
