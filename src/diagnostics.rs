@@ -92,52 +92,62 @@ fn expression_right(right: Node<'_>, content: &str, scope: &Scope) -> Vec<Diagno
                     data: None,
                 });
             }
-
-            continue;
-        }
-
-        stack.extend(n.children(&mut cursor));
-    }
-
-    diagnostics
-}
-
-fn handle_statement(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
-    let mut cursor = stmt.walk();
-    if !cursor.goto_first_child() {
-        return vec![];
-    }
-
-    let mut diagnostics = Vec::with_capacity(2);
-
-    let kind = stmt.kind();
-    if kind == "if_statement" {
-        return handle_branch(stmt, content, scope);
-    }
-
-    for child in stmt.children(&mut cursor) {
-        let kind = child.kind();
-
-        if kind == "assignment_expression" {
-            if let (Some(left), Some(right)) = (child.child_by_field_name("left"), child.child_by_field_name("right")) {
-                let symbols = expression_left(left, content);
-                let problems = expression_right(right, content, &scope);
-
-                diagnostics.extend(problems);
-
-                for symbol in symbols {
-                    scope.symbols.insert(symbol);
+        } else if kind == "arrow_function" {
+            let mut arrow_function_scope = scope.clone();
+            if let Some(params_node) = n.child_by_field_name("parameters") {
+                let params = function_parameters(params_node, content);
+                for param in params {
+                    arrow_function_scope.symbols.insert(param);
                 }
             }
+
+            if let Some(body) = n.child_by_field_name("body") {
+                diagnostics.extend(undefined_expression(body, content, &mut arrow_function_scope));
+            }
+        } else if kind == "anonymous_function" {
+            let mut anonymous_scope = scope.clone();
+            if let Some(params_node) = n.child_by_field_name("parameters") {
+                let params = function_parameters(params_node, content);
+                for param in params {
+                    anonymous_scope.symbols.insert(param);
+                }
+            }
+
+            let mut cursor = n.walk();
+            for child in n.children(&mut cursor) {
+                if child.kind() == "anonymous_function_use_clause" {
+                    stack.push(child);
+                    break;
+                }
+            }
+
+            if let Some(body) = n.child_by_field_name("body") {
+                diagnostics.extend(undefined_expression(body, content, &mut anonymous_scope));
+            }
         } else {
-            diagnostics.extend(expression_right(child, content, &scope));
+            stack.extend(n.children(&mut cursor));
         }
     }
 
     diagnostics
 }
 
-fn handle_branch(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+fn undefined_assignment_expression(assign: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    if let (Some(left), Some(right)) = (assign.child_by_field_name("left"), assign.child_by_field_name("right")) {
+        let symbols = expression_left(left, content);
+        let problems = undefined_expression(right, content, scope);
+
+        for symbol in symbols {
+            scope.symbols.insert(symbol);
+        }
+
+        problems
+    } else {
+        Vec::new()
+    }
+}
+
+fn undefined_if_statement(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
     let mut cursor = stmt.walk();
     let mut diagnostics = Vec::new();
     let mut scopes = Vec::new();
@@ -145,15 +155,13 @@ fn handle_branch(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagno
     if let Some(condition) = stmt.child_by_field_name("condition") {
         let mut s = scope.clone();
         // i'm pretty sure that you can also do assignments in conditionals
-        diagnostics.extend(handle_statement(condition, content, &mut s));
+        diagnostics.extend(undefined_expression(condition, content, &mut s));
         scopes.push(s);
     }
 
     if let Some(body) = stmt.child_by_field_name("body") {
         let mut s = scope.clone();
-        for child in body.children(&mut cursor) {
-            diagnostics.extend(handle_statement(child, content, &mut s));
-        }
+        diagnostics.extend(undefined_statement(body, content, &mut s));
         scopes.push(s);
     }
 
@@ -163,17 +171,14 @@ fn handle_branch(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagno
         if kind == "else_if_clause" {
             if let Some(condition) = alt.child_by_field_name("condition") {
                 let mut s = scope.clone();
-                diagnostics.extend(handle_statement(condition, content, &mut s));
+                diagnostics.extend(undefined_expression(condition, content, &mut s));
                 scopes.push(s);
             }
         }
 
         if let Some(body) = alt.child_by_field_name("body") {
             let mut s = scope.clone();
-            let mut cursor = body.walk();
-            for child in body.children(&mut cursor) {
-                diagnostics.extend(handle_statement(child, content, &mut s));
-            }
+            diagnostics.extend(undefined_statement(body, content, &mut s));
             scopes.push(s);
         }
     }
@@ -185,78 +190,219 @@ fn handle_branch(stmt: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagno
     diagnostics
 }
 
+fn undefined_class_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    if let Some(name) = decl.child_by_field_name("name") {
+        scope.symbols.insert(content[name.byte_range()].to_string());
+    }
+
+    if let Some(body) = decl.child_by_field_name("body") {
+        if body.kind() == "declaration_list" {
+            let mut cursor = body.walk();
+            let mut diagnostics = Vec::new();
+            for child in body.children(&mut cursor) {
+                // each declaration should have it's own scope
+                let mut scope = scope.clone();
+                scope.symbols.insert("self".to_string());
+                diagnostics.extend(undefined_declaration(child, content, &mut scope));
+            }
+
+            diagnostics
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    }
+}
+
+fn undefined_function_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    if let Some(name) = decl.child_by_field_name("name") {
+        scope.symbols.insert(content[name.byte_range()].to_string());
+    }
+
+    let mut function_scope = scope.clone();
+
+    if let Some(params_node) = decl.child_by_field_name("parameters") {
+        let params = function_parameters(params_node, content);
+        for param in params {
+            function_scope.symbols.insert(param);
+        }
+    }
+
+    if let Some(body) = decl.child_by_field_name("body") {
+        undefined_statement(body, content, &mut function_scope)
+    } else {
+        Vec::new()
+    }
+}
+
+fn undefined_method_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    scope.symbols.insert("$this".to_string());
+
+    undefined_function_declaration(decl, content, scope)
+}
+
+fn undefined_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let kind = decl.kind();
+
+    if kind == "class_declaration" {
+        undefined_class_declaration(decl, content, scope)
+    } else if kind == "function_declaration" {
+        undefined_function_declaration(decl, content, scope)
+    } else if kind == "method_declaration" {
+        undefined_method_declaration(decl, content, scope)
+    } else {
+        Vec::new()
+    }
+}
+
+fn undefined_expression(expression: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let kind = expression.kind();
+
+    if kind == "assignment_expression" {
+        undefined_assignment_expression(expression, content, scope)
+    } else if kind == "parenthesized_expression" {
+        if let Some(expr) = expression.child(1) {
+            undefined_expression(expr, content, scope)
+        } else {
+            expression_right(expression, content, scope)
+        }
+    } else {
+        expression_right(expression, content, scope)
+    }
+}
+
+fn undefined_for_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut for_scope = scope.clone();
+
+    if let Some(init) = statement.child_by_field_name("initialize") {
+        diagnostics.extend(undefined_expression(init, content, &mut for_scope));
+    }
+
+    if let Some(cond) = statement.child_by_field_name("condition") {
+        diagnostics.extend(undefined_expression(cond, content, &mut for_scope));
+    }
+
+    if let Some(update) = statement.child_by_field_name("update") {
+        diagnostics.extend(undefined_expression(update, content, &mut for_scope));
+    }
+
+    if let Some(body) = statement.child_by_field_name("body") {
+        diagnostics.extend(undefined_statement(body, content, &mut for_scope));
+    }
+
+    diagnostics
+}
+
+fn undefined_foreach_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if let Some(iter) = statement.child(2) {
+        diagnostics.extend(undefined_expression(iter, content, scope));
+    }
+
+    // FIXME only references would leak
+    let mut scope = scope.clone();
+
+    if let Some(child) = statement.child(4) {
+        if child.kind() == "pair" {
+            let mut cursor = child.walk();
+            for x in child.children(&mut cursor) {
+                scope.symbols.insert(content[x.byte_range()].to_string());
+            }
+        } else if child.kind() == "variable_name" {
+            scope.symbols.insert(content[child.byte_range()].to_string());
+        }
+    }
+
+    if let Some(body) = statement.child_by_field_name("body") {
+        diagnostics.extend(undefined_statement(body, content, &mut scope));
+    }
+
+    diagnostics
+}
+
+fn undefined_while_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if let Some(condition) = statement.child_by_field_name("condition") {
+        diagnostics.extend(undefined_expression(condition, content, scope));
+    }
+
+    if let Some(body) = statement.child_by_field_name("body") {
+        diagnostics.extend(undefined_statement(body, content, &mut scope.clone()));
+    }
+
+    diagnostics
+}
+
+fn undefined_do_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    let mut scope = scope.clone();
+    if let Some(body) = statement.child_by_field_name("body") {
+        diagnostics.extend(undefined_statement(body, content, &mut scope));
+    }
+
+    if let Some(condition) = statement.child_by_field_name("condition") {
+        diagnostics.extend(undefined_expression(condition, content, &mut scope));
+    }
+
+    diagnostics
+}
+
+fn undefined_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+    let kind = statement.kind();
+
+    if kind == "compound_statement" {
+        let mut cursor = statement.walk();
+        let mut diagnostics = Vec::new();
+        for child in statement.children(&mut cursor) {
+            diagnostics.extend(undefined_statement(child, content, scope));
+        }
+
+        diagnostics
+    } else if kind == "expression_statement" {
+        if let Some(expression) = statement.child(0) {
+            undefined_expression(expression, content, scope)
+        } else {
+            Vec::new()
+        }
+    } else if kind == "if_statement" {
+        undefined_if_statement(statement, content, scope)
+    } else if kind == "for_statement" {
+        undefined_for_statement(statement, content, scope)
+    } else if kind == "foreach_statement" {
+        undefined_foreach_statement(statement, content, scope)
+    } else if kind == "while_statement" {
+        undefined_while_statement(statement, content, scope)
+    } else if kind == "do_statement" {
+        undefined_do_statement(statement, content, scope)
+    } else {
+        Vec::new()
+    }
+}
+
 pub fn undefined(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let mut cursor = node.walk();
     let mut diagnostics = Vec::new();
-    let mut stack = Vec::with_capacity(50);
 
-    stack.push((node, Scope::empty()));
+    let kind = node.kind();
+    if kind == "program" {
+        let mut scope = Scope::empty();
+        for child in node.children(&mut cursor) {
+            let kind = child.kind();
+            if kind == "php_tag" {
+                continue;
+            } else if kind == "namespace_definition" {
 
-    while let Some((node, mut scope)) = stack.pop() {
-        let kind = node.kind();
+            } else if kind == "namespace_use_declaration" {
 
-        if kind == "namespace_use_declaration" {
-        } else if kind == "function_declaration" || kind == "method_declaration" {
-            if kind == "method_declaration" {
-                scope.symbols.insert("$this".to_string());
-                scope.symbols.insert("self".to_string());
-            }
-
-            if let Some(params_node) = node.child_by_field_name("parameters") {
-                let params = function_parameters(params_node, content);
-                for param in params {
-                    scope.symbols.insert(param);
-                }
-            }
-            if let Some(body_node) = node.child_by_field_name("body") {
-                stack.push((body_node, scope));
-            }
-        } else if kind == "compound_statement" {
-            for child in node.children(&mut cursor) {
-                diagnostics.extend(handle_statement(child, content, &mut scope));
-            }
-        } else if kind == "php_tag" {
-            // ignore
-        } else if kind == "for_statement" {
-            if let Some(init) = node.child_by_field_name("initialize") {
-                diagnostics.extend(handle_statement(init, content, &mut scope));
-            }
-
-            if let Some(cond) = node.child_by_field_name("condition") {
-                diagnostics.extend(handle_statement(cond, content, &mut scope));
-            }
-
-            if let Some(body) = node.child_by_field_name("body") {
-                stack.push((body, scope));
-            }
-        } else if kind == "foreach_statement" {
-            if let Some(iter) = node.child(0) {
-                diagnostics.extend(expression_right(iter, content, &mut scope));
-            }
-
-            if let Some(child) = node.child(1) {
-                if child.kind() == "pair" {
-                    for x in child.children(&mut cursor) {
-                        scope.symbols.insert(content[x.byte_range()].to_string());
-                    }
-                } else if child.kind() == "variable_name" {
-                    scope.symbols.insert(content[child.byte_range()].to_string());
-                }
-            }
-
-            if let Some(body) = node.child_by_field_name("body") {
-                stack.push((body, scope));
-            }
-        } else {
-            for child in node.children(&mut cursor) {
-                let kind = child.kind();
-                if kind == "expression_statement" {
-                    diagnostics.extend(handle_statement(child, content, &mut scope));
-                } else if kind == "if_statement" {
-                    diagnostics.extend(handle_branch(child, content, &mut scope));
-                } else {
-                    stack.push((child, scope.clone()));
-                }
+            } else if kind.ends_with("_declaration") {
+                diagnostics.extend(undefined_declaration(child, content, &mut scope));
+            } else if kind.ends_with("_statement") {
+                diagnostics.extend(undefined_statement(child, content, &mut scope));
             }
         }
     }
@@ -267,8 +413,8 @@ pub fn undefined(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
 fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let mut cursor = QueryCursor::new();
     let mut captures = cursor.captures(&MISSING_QUERY, node, content.as_bytes());
-
     let mut diagnostics = Vec::new();
+
     while let Some((m, _)) = captures.next() {
         for c in m.captures.iter() {
             let sexp = c.node.to_sexp();
@@ -292,8 +438,8 @@ fn get_tree_diagnostics_missing(node: Node<'_>, content: &str) -> Vec<Diagnostic
 fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
     let mut cursor = QueryCursor::new();
     let mut captures = cursor.captures(&ERROR_QUERY, node, content.as_bytes());
-
     let mut diagnostics = Vec::new();
+
     while let Some((m, _)) = captures.next() {
         for c in m.captures.iter() {
             diagnostics.push(Diagnostic {
@@ -377,13 +523,13 @@ mod test {
 
         let stmt1 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt1.kind());
-        let diags = super::handle_statement(stmt1, src, &mut scope);
+        let diags = super::undefined_statement(stmt1, src, &mut scope);
         assert!(diags.is_empty());
         assert_eq!(1, scope.symbols.len());
 
         let stmt2 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt2.kind());
-        let diags = super::handle_statement(stmt2, src, &mut scope);
+        let diags = super::undefined_statement(stmt2, src, &mut scope);
         assert_eq!(1, diags.len());
         let diag = &diags[0];
         assert_eq!("undefined variable $var2", &diag.message);
@@ -394,7 +540,7 @@ mod test {
 
         let stmt3 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt3.kind());
-        let diags = super::handle_statement(stmt3, src, &mut scope);
+        let diags = super::undefined_statement(stmt3, src, &mut scope);
         assert_eq!(1, diags.len());
         let diag = &diags[0];
         assert_eq!("undefined variable $var4", &diag.message);
@@ -425,7 +571,32 @@ mod test {
             } else {
                 $var3 = 4;
             }
-            $var4 = $var3;"
+            $var4 = $var3;",
+            "<?php
+            $container = [1, 2];
+            foreach ($container as $i => $x) {
+                echo $i;
+                echo $x;
+            }",
+            "<?php
+            $x = 300 + 40;
+            for ($i = $x; $i < 0; $i++) {
+                echo $i;
+                echo $x;
+            }",
+            "<?php
+            while ($i = 0) {
+                echo $i;
+            }",
+            "<?php
+            $f = fn($x) => $x + 1;",
+            "<?php
+            $b = 31;
+            $f = function($x) use ($b) {return $x;};",
+            "<?php
+            do {
+                $i = 0;
+            } while ($i > 10);",
         ];
 
         for src in srcs {
@@ -451,6 +622,28 @@ mod test {
             } else {
                 $var2 = $var1;
             }",
+            "<?php
+            foreach ($container as $i => $x) {
+                echo $i;
+                echo $x;
+            }",
+            "<?php
+            for ($i = $x; $i < 0; $i++) {
+                echo $i;
+                echo $x;
+            }",
+            "<?php
+            while ($i = $x) {
+                echo $i;
+            }",
+            "<?php
+            $f = fn($x) => $i + $x;",
+            "<?php
+            $f = function($x) use ($b) {return $x;};",
+            "<?php
+            do {
+                $i = 0;
+            } while ($i = $x);",
         ];
 
         for src in srcs {

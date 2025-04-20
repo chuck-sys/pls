@@ -22,7 +22,7 @@ use std::collections::HashSet;
 ///
 /// The benefit is that we don't have to `#[derive(Clone)]`. The downside is literally everything
 /// else.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Scope {
     pub symbols: HashSet<String>,
 }
