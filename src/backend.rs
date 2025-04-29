@@ -2,7 +2,7 @@ use tower_lsp::jsonrpc::{Result as LspResult, Error as LspError, ErrorCode as Ls
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Node, Parser};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
@@ -19,13 +19,14 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::borrow::Cow;
 
-use crate::code_action::{changes_phpecho, phpecho_title, CodeActionValue};
+use crate::code_action::{changes_phpecho, PHPECHO_TITLE, CodeActionValue};
 use crate::compat::*;
 use crate::composer::{Autoload, get_composer_files};
 use crate::file::{parse, FileData};
 use crate::php_namespace::PhpNamespace;
 use crate::diagnostics::DiagnosticsOptions;
 use crate::diagnostics;
+use crate::analyze;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -471,9 +472,7 @@ impl LanguageServer for Backend {
         if init_options.diagnostics.syntax {
             diagnostics.extend(diagnostics::syntax(php_tree.root_node(), &data.text_document.text));
         }
-        if init_options.diagnostics.undefined {
-            diagnostics.extend(diagnostics::undefined(php_tree.root_node(), &data.text_document.text));
-        }
+        diagnostics.extend(analyze::walk(php_tree.root_node(), &data.text_document.text));
 
         self.client
             .publish_diagnostics(
@@ -536,9 +535,7 @@ impl LanguageServer for Backend {
                 if init_options.diagnostics.syntax {
                     diagnostics.extend(diagnostics::syntax(entry.php_tree.root_node(), &entry.contents));
                 }
-                if init_options.diagnostics.undefined {
-                    diagnostics.extend(diagnostics::undefined(entry.php_tree.root_node(), &entry.contents));
-                }
+                diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents));
 
                 self.client
                     .publish_diagnostics(
@@ -593,7 +590,7 @@ impl LanguageServer for Backend {
             if params.range.start == params.range.end && file_data.contents.contains("<?php echo ")
             {
                 let action = CodeAction {
-                    title: phpecho_title.to_string(),
+                    title: PHPECHO_TITLE.to_string(),
                     kind: Some(CodeActionKind::SOURCE),
                     data: Some(json!({"uri": params.text_document.uri})),
                     ..CodeAction::default()
@@ -605,7 +602,7 @@ impl LanguageServer for Backend {
     }
 
     async fn code_action_resolve(&self, params: CodeAction) -> LspResult<CodeAction> {
-        if &params.title == phpecho_title {
+        if &params.title == PHPECHO_TITLE {
             if let Some(v) = params.data {
                 let v: CodeActionValue = serde_json::from_value(v).map_err(|e| LspError {
                     code: LspErrorCode::InvalidParams,
@@ -626,7 +623,7 @@ impl LanguageServer for Backend {
                 );
 
                 Ok(CodeAction {
-                    title: phpecho_title.to_string(),
+                    title: PHPECHO_TITLE.to_string(),
                     kind: Some(CodeActionKind::SOURCE),
                     edit: Some(WorkspaceEdit {
                         document_changes,

@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use crate::file::offset_to_position;
 
-pub const phpecho_title: &'static str = "Convert `<?php echo` into `<?=`";
+pub const PHPECHO_TITLE: &'static str = "Convert `<?php echo` into `<?=`";
 
 #[derive(Serialize, Deserialize)]
 pub struct CodeActionValue {

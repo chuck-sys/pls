@@ -2,6 +2,7 @@ use std::env;
 
 use tower_lsp::{LspService, Server};
 
+mod analyze;
 mod backend;
 mod code_action;
 mod compat;
