@@ -239,22 +239,21 @@ fn walk_expression(expression: Node<'_>, content: &str, scope: &mut Scope) -> Ve
 
 fn walk_for_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    let mut for_scope = scope.clone();
 
     if let Some(init) = statement.child_by_field_name("initialize") {
-        diagnostics.extend(walk_expression(init, content, &mut for_scope));
+        diagnostics.extend(walk_expression(init, content, scope));
     }
 
     if let Some(cond) = statement.child_by_field_name("condition") {
-        diagnostics.extend(walk_expression(cond, content, &mut for_scope));
+        diagnostics.extend(walk_expression(cond, content, scope));
     }
 
     if let Some(update) = statement.child_by_field_name("update") {
-        diagnostics.extend(walk_expression(update, content, &mut for_scope));
+        diagnostics.extend(walk_expression(update, content, scope));
     }
 
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, &mut for_scope));
+        diagnostics.extend(walk_statement(body, content, scope));
     }
 
     diagnostics
@@ -266,9 +265,6 @@ fn walk_foreach_statement(statement: Node<'_>, content: &str, scope: &mut Scope)
     if let Some(iter) = statement.child(2) {
         diagnostics.extend(walk_expression(iter, content, scope));
     }
-
-    // FIXME only references would leak
-    let mut scope = scope.clone();
 
     if let Some(child) = statement.child(4) {
         if child.kind() == "pair" {
@@ -282,7 +278,7 @@ fn walk_foreach_statement(statement: Node<'_>, content: &str, scope: &mut Scope)
     }
 
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, &mut scope));
+        diagnostics.extend(walk_statement(body, content, scope));
     }
 
     diagnostics
@@ -296,7 +292,7 @@ fn walk_while_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -
     }
 
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, &mut scope.clone()));
+        diagnostics.extend(walk_statement(body, content, scope));
     }
 
     diagnostics
@@ -305,13 +301,12 @@ fn walk_while_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -
 fn walk_do_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    let mut scope = scope.clone();
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, &mut scope));
+        diagnostics.extend(walk_statement(body, content, scope));
     }
 
     if let Some(condition) = statement.child_by_field_name("condition") {
-        diagnostics.extend(walk_expression(condition, content, &mut scope));
+        diagnostics.extend(walk_expression(condition, content, scope));
     }
 
     diagnostics
@@ -390,30 +385,6 @@ mod test {
 
         parser
     }
-
-    const SOURCE: &'static str = "<?php
-            class Whatever {
-                public int $x = 12;
-                public function foo(int $bar): void
-                {
-                    $this->x = $bar;
-                }
-
-                public function fee(string $sound, ?array $down): int|false
-                {
-                    $this->x = 12;
-                    if (!empty($down)) {
-                        $this->x = ((int) $sound) + ((int) $down[0]);
-                    }
-                }
-            }
-
-            final class Another {
-                private int $y = 3;
-                public function __constructor(): void
-                {
-                }
-            }";
 
     #[test]
     fn assignments_scoping() {
