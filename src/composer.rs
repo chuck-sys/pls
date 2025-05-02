@@ -1,4 +1,5 @@
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::UriExt;
 
 use serde::Deserialize;
 use serde_json::Error as SerdeError;
@@ -173,7 +174,7 @@ impl Autoload {
 pub fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> Vec<PathBuf> {
     let mut composer_files = vec![];
     for folder in workspace_folders {
-        if let Ok(path) = folder.uri.to_file_path() {
+        if let Some(path) = folder.uri.to_file_path() {
             let composer_file = path.join("composer.json");
             if !composer_file.exists() {
                 continue;

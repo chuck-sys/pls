@@ -1,4 +1,4 @@
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::lsp_types::*;
 
 use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
 use tree_sitter_php::language_php;
@@ -210,7 +210,7 @@ pub fn byte_offset(text: &str, r: &Position) -> Option<usize> {
 
 #[cfg(test)]
 mod test {
-    use tower_lsp::lsp_types::*;
+    use tower_lsp_server::lsp_types::*;
 
     use super::byte_offset;
 

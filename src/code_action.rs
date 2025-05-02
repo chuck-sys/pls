@@ -1,4 +1,4 @@
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::lsp_types::*;
 
 use serde::{Serialize, Deserialize};
 
@@ -12,7 +12,7 @@ pub const PHPECHO_TITLE: &'static str = "Convert `<?php echo` into `<?=`";
 
 #[derive(Serialize, Deserialize)]
 pub struct CodeActionValue {
-    pub uri: Url,
+    pub uri: Uri,
 }
 
 fn phpecho_re() -> &'static Regex {
@@ -20,7 +20,7 @@ fn phpecho_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap())
 }
 
-pub fn changes_phpecho(uri: &Url, contents: &str, version: i32) -> Option<DocumentChanges> {
+pub fn changes_phpecho(uri: &Uri, contents: &str, version: i32) -> Option<DocumentChanges> {
     let mut edits = vec![];
     let text_document = OptionalVersionedTextDocumentIdentifier {
         uri: uri.clone(),
@@ -48,7 +48,8 @@ pub fn changes_phpecho(uri: &Url, contents: &str, version: i32) -> Option<Docume
 
 #[cfg(test)]
 mod test {
-    use tower_lsp::lsp_types::*;
+    use tower_lsp_server::lsp_types::*;
+    use std::str::FromStr;
 
     use super::changes_phpecho;
 
@@ -67,7 +68,7 @@ mod test {
 
 
             <?php echo 34; ?>";
-        let uri = Url::parse("https://google.ca").unwrap();
+        let uri = Uri::from_str("https://google.ca").unwrap();
         let edits = unwrap_enum!(
             changes_phpecho(&uri, &contents, 1).unwrap(),
             DocumentChanges::Edits

@@ -1,6 +1,6 @@
-use tower_lsp::jsonrpc::{Result as LspResult, Error as LspError, ErrorCode as LspErrorCode};
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer};
+use tower_lsp_server::jsonrpc::{Result as LspResult, Error as LspError, ErrorCode as LspErrorCode};
+use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::{Client, LanguageServer};
 
 use tree_sitter::{Node, Parser};
 use tree_sitter_php::language_php;
@@ -233,7 +233,7 @@ struct BackendData {
     php_parser: Parser,
     phpdoc_parser: Parser,
 
-    file_trees: HashMap<Url, FileData>,
+    file_trees: HashMap<Uri, FileData>,
     ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
 }
 
@@ -310,7 +310,7 @@ impl Backend {
         }
     }
 
-    async fn get_selection_range(&self, uri: &Url, position: &Position) -> Option<SelectionRange> {
+    async fn get_selection_range(&self, uri: &Uri, position: &Position) -> Option<SelectionRange> {
         let data_guard = self.data.read().await;
 
         if let Some(data) = data_guard.file_trees.get(uri) {
@@ -348,7 +348,7 @@ impl Backend {
         }
     }
 
-    async fn get_hover_markup(&self, uri: &Url, position: &Position) -> Option<String> {
+    async fn get_hover_markup(&self, uri: &Uri, position: &Position) -> Option<String> {
         let data_guard = self.data.read().await;
 
         if let Some(data) = data_guard.file_trees.get(uri) {
@@ -392,7 +392,6 @@ fn supported_capabilities() -> &'static ServerCapabilities {
     })
 }
 
-#[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
         let mut workspace_folders = params.workspace_folders.unwrap_or(vec![]);
@@ -407,19 +406,18 @@ impl LanguageServer for Backend {
 
         if workspace_folders.is_empty() {
             self.client
-                .log_message(
+                .show_message(
                     MessageType::LOG,
                     "unable to find workspace folders, root paths, or root uris",
                 )
                 .await;
         } else {
             self.client
-                .log_message(
+                .show_message(
                     MessageType::LOG,
                     format!(
-                        "found {} workspace folders: {:?}",
-                        workspace_folders.len(),
-                        &workspace_folders
+                        "found {} workspace folder(s)",
+                        workspace_folders.len()
                     ),
                 )
                 .await;
@@ -446,12 +444,6 @@ impl LanguageServer for Backend {
         })
     }
 
-    async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::LOG, "server initialized")
-            .await;
-    }
-
     async fn shutdown(&self) -> LspResult<()> {
         self.client
             .log_message(MessageType::LOG, "server shutdown")
@@ -472,7 +464,9 @@ impl LanguageServer for Backend {
         if init_options.diagnostics.syntax {
             diagnostics.extend(diagnostics::syntax(php_tree.root_node(), &data.text_document.text));
         }
-        diagnostics.extend(analyze::walk(php_tree.root_node(), &data.text_document.text));
+        if init_options.diagnostics.undefined {
+            diagnostics.extend(analyze::walk(php_tree.root_node(), &data.text_document.text));
+        }
 
         self.client
             .publish_diagnostics(
@@ -507,7 +501,7 @@ impl LanguageServer for Backend {
                             MessageType::WARNING,
                             format!(
                                 "didChange tried to change same version for file `{}`",
-                                &data.text_document.uri
+                                data.text_document.uri.as_str(),
                             ),
                         )
                         .await;
@@ -535,7 +529,9 @@ impl LanguageServer for Backend {
                 if init_options.diagnostics.syntax {
                     diagnostics.extend(diagnostics::syntax(entry.php_tree.root_node(), &entry.contents));
                 }
-                diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents));
+                if init_options.diagnostics.undefined {
+                    diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents));
+                }
 
                 self.client
                     .publish_diagnostics(
@@ -551,7 +547,7 @@ impl LanguageServer for Backend {
                         MessageType::ERROR,
                         format!(
                             "didChange event triggered without didOpen for file `{}`",
-                            &data.text_document.uri,
+                            data.text_document.uri.as_str(),
                         ),
                     )
                     .await;
@@ -689,7 +685,7 @@ impl LanguageServer for Backend {
 
 #[cfg(test)]
 mod test {
-    use tower_lsp::lsp_types::*;
+    use tower_lsp_server::lsp_types::*;
     use tree_sitter::Parser;
     use tree_sitter_php::language_php;
 

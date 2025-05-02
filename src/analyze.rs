@@ -1,4 +1,4 @@
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::lsp_types::*;
 
 use tree_sitter::Node;
 

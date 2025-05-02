@@ -1,6 +1,6 @@
 use std::env;
 
-use tower_lsp::{LspService, Server};
+use tower_lsp_server::{LspService, Server};
 
 mod analyze;
 mod backend;
