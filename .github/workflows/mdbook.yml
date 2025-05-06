@@ -18,7 +18,7 @@ jobs:
           mkdir bin
           curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.49/mdbook-v0.4.49-x86_64-unknown-linux-gnu.tar.gz | tar -xz --directory=bin
       - name: Build the book
-        run: bin/mdbook build docs/book/
+        run: bin/mdbook build --dest-dir book docs/book/
       - run: ls
       - name: Upload the artifact
         uses: actions/upload-pages-artifact@v3
