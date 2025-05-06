@@ -10,8 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
-        key: mdbook-v0.4.49
         with:
+          key: mdbook-v0.4.49
           path: ./bin
       - name: Install mdBook
         run: |
