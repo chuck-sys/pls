@@ -1,0 +1,8 @@
+[book]
+authors = ["The phplsp author(s)"]
+language = "en"
+src = "src"
+title = "phplsp"
+
+[output.html]
+site-url = "/phplsp/"
