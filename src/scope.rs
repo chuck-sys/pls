@@ -1,4 +1,21 @@
 use std::collections::HashSet;
+use std::sync::LazyLock;
+
+static SUPERGLOBALS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    let mut symbols = HashSet::new();
+
+    symbols.insert("$GLOBALS".into());
+    symbols.insert("$_SERVER".into());
+    symbols.insert("$_GET".into());
+    symbols.insert("$_POST".into());
+    symbols.insert("$_FILES".into());
+    symbols.insert("$_COOKIE".into());
+    symbols.insert("$_SESSION".into());
+    symbols.insert("$_REQUEST".into());
+    symbols.insert("$_ENV".into());
+
+    symbols
+});
 
 /// A primitive way of capturing all non-shadowed variables.
 ///
@@ -30,7 +47,7 @@ pub struct Scope {
 impl Scope {
     pub fn empty() -> Self {
         Self {
-            symbols: HashSet::new(),
+            symbols: SUPERGLOBALS.clone(),
         }
     }
 

@@ -387,6 +387,15 @@ mod test {
     }
 
     #[test]
+    fn defined_superglobals() {
+        let src = "<?php var_dump($_GET);";
+        let tree = parser().parse(src, None).unwrap();
+        let root_node = tree.root_node();
+        let diags = super::walk(root_node, src);
+        assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
+    }
+
+    #[test]
     fn assignments_scoping() {
         let src = "<?php
         $var1 = 1 + 2;
@@ -406,7 +415,7 @@ mod test {
         assert_eq!("expression_statement", stmt1.kind());
         let diags = super::walk_statement(stmt1, src, &mut scope);
         assert!(diags.is_empty());
-        assert_eq!(1, scope.symbols.len());
+        assert_eq!(10, scope.symbols.len());
 
         let stmt2 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt2.kind());
@@ -414,7 +423,7 @@ mod test {
         assert_eq!(1, diags.len());
         let diag = &diags[0];
         assert_eq!("undefined variable $var2", &diag.message);
-        assert_eq!(2, scope.symbols.len());
+        assert_eq!(11, scope.symbols.len());
 
         assert!(scope.symbols.contains("$var1"));
         assert!(scope.symbols.contains("$var2"));
@@ -425,7 +434,7 @@ mod test {
         assert_eq!(1, diags.len());
         let diag = &diags[0];
         assert_eq!("undefined variable $var4", &diag.message);
-        assert_eq!(4, scope.symbols.len());
+        assert_eq!(13, scope.symbols.len());
 
         assert!(scope.symbols.contains("$var3"));
         assert!(scope.symbols.contains("$var4"));
