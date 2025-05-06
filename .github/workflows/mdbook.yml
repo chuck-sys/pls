@@ -10,10 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
+        id: cache-mdbook
         with:
           key: mdbook-v0.4.49
           path: ./bin
       - name: Install mdBook
+        if: ${{ steps.cache-mdbook.outputs.cache-hit != 'true' }}
         run: |
           mkdir bin
           curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.49/mdbook-v0.4.49-x86_64-unknown-linux-gnu.tar.gz | tar -xz --directory=bin
