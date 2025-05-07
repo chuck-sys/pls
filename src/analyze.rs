@@ -62,13 +62,9 @@ fn expression_right(right: Node<'_>, content: &str, scope: &Scope) -> Vec<Diagno
                 diagnostics.push(Diagnostic {
                     range: to_range(&n.range()),
                     severity: Some(DiagnosticSeverity::ERROR),
-                    code: None,
-                    code_description: None,
                     source: Some("undef".to_string()),
                     message: format!("undefined variable {}", name),
-                    related_information: None,
-                    tags: None,
-                    data: None,
+                    ..Default::default()
                 });
             }
         } else if kind == "arrow_function" {
