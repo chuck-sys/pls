@@ -3,18 +3,32 @@ use tower_lsp_server::lsp_types::*;
 use tree_sitter::Node;
 
 use crate::compat::to_range;
-use crate::scope::Scope;
+use crate::scope::{Scope, SUPERGLOBALS};
 
-fn function_parameters(params: Node<'_>, content: &str) -> Vec<String> {
+fn function_parameters(params: Node<'_>, content: &str) -> (Vec<String>, Vec<Diagnostic>) {
     let mut cursor = params.walk();
     let mut symbols = Vec::new();
+    let mut diagnostics = Vec::new();
+
     for child in params.children(&mut cursor) {
         if let Some(name_node) = child.child_by_field_name("name") {
-            symbols.push(content[name_node.byte_range()].to_string());
+            let name = &content[name_node.byte_range()];
+
+            symbols.push(name.to_string());
+
+            if SUPERGLOBALS.contains(name) {
+                diagnostics.push(Diagnostic {
+                    range: to_range(&name_node.range()),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    source: Some("superglobal".to_string()),
+                    message: format!("superglobal {} cannot be shadowed", name),
+                    ..Default::default()
+                });
+            }
         }
     }
 
-    symbols
+    (symbols, diagnostics)
 }
 
 /// LHS of an assignment expression.
@@ -60,10 +74,12 @@ fn expression_right(right: Node<'_>, content: &str, scope: &Scope) -> Vec<Diagno
         } else if kind == "arrow_function" {
             let mut arrow_function_scope = scope.clone();
             if let Some(params_node) = n.child_by_field_name("parameters") {
-                let params = function_parameters(params_node, content);
+                let (params, diags) = function_parameters(params_node, content);
                 for param in params {
                     arrow_function_scope.symbols.insert(param);
                 }
+
+                diagnostics.extend(diags);
             }
 
             if let Some(body) = n.child_by_field_name("body") {
@@ -72,10 +88,12 @@ fn expression_right(right: Node<'_>, content: &str, scope: &Scope) -> Vec<Diagno
         } else if kind == "anonymous_function" {
             let mut anonymous_scope = scope.clone();
             if let Some(params_node) = n.child_by_field_name("parameters") {
-                let params = function_parameters(params_node, content);
+                let (params, diags) = function_parameters(params_node, content);
                 for param in params {
                     anonymous_scope.symbols.insert(param);
                 }
+
+                diagnostics.extend(diags);
             }
 
             let mut cursor = n.walk();
@@ -185,20 +203,24 @@ fn walk_function_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -
         scope.symbols.insert(content[name.byte_range()].to_string());
     }
 
+    let mut diagnostics = Vec::new();
     let mut function_scope = scope.clone();
 
     if let Some(params_node) = decl.child_by_field_name("parameters") {
-        let params = function_parameters(params_node, content);
+        let (params, diags) = function_parameters(params_node, content);
         for param in params {
             function_scope.symbols.insert(param);
         }
+
+        diagnostics = diags;
     }
 
     if let Some(body) = decl.child_by_field_name("body") {
-        walk_statement(body, content, &mut function_scope)
-    } else {
-        Vec::new()
+        let diags = walk_statement(body, content, &mut function_scope);
+        diagnostics.extend(diags)
     }
+
+    diagnostics
 }
 
 fn walk_method_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
@@ -212,7 +234,7 @@ fn walk_declaration(decl: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Dia
 
     if kind == "class_declaration" {
         walk_class_declaration(decl, content, scope)
-    } else if kind == "function_declaration" {
+    } else if kind == "function_definition" || kind == "function_static_declaration" {
         walk_function_declaration(decl, content, scope)
     } else if kind == "method_declaration" {
         walk_method_declaration(decl, content, scope)
@@ -359,7 +381,7 @@ pub fn walk(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
 
             } else if kind == "namespace_use_declaration" {
 
-            } else if kind.ends_with("_declaration") {
+            } else if kind.ends_with("_declaration") || kind == "function_definition" {
                 diagnostics.extend(walk_declaration(child, content, &mut scope));
             } else if kind.ends_with("_statement") {
                 diagnostics.extend(walk_statement(child, content, &mut scope));
@@ -384,6 +406,16 @@ mod test {
             .expect("error loading PHP grammar");
 
         parser
+    }
+
+    #[test]
+    fn param_is_superglobal() {
+        let src = "<?php
+        function foo(int $_GET) {}";
+        let tree = parser().parse(src, None).unwrap();
+        let root_node = tree.root_node();
+        let diags = super::walk(root_node, src);
+        assert!(diags.len() == 1, "src = {}\ndiags = {:?}", src, diags);
     }
 
     #[test]

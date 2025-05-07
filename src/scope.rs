@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-static SUPERGLOBALS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+pub static SUPERGLOBALS: LazyLock<HashSet<String>> = LazyLock::new(|| {
     let mut symbols = HashSet::new();
 
     symbols.insert("$GLOBALS".into());
