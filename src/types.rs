@@ -1,10 +1,5 @@
-use tree_sitter::Range as TSRange;
-
-use std::sync::Arc;
 use std::boxed::Box;
-use std::default::Default;
-
-use crate::php_namespace::PhpNamespace;
+use std::collections::HashMap;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Scalar {
@@ -30,12 +25,7 @@ pub struct Nullable(Box<Type>);
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Type {
-    Class(Class),
-    Enum,
-    Function(Box<Function>),
-    Trait,
-    Interface,
-
+    CustomType(Fqn),
     Scalar(Scalar),
     Array,
     Object,
@@ -51,15 +41,98 @@ pub enum Type {
 }
 
 #[derive(PartialEq, Clone, Debug)]
+pub enum Visibility {
+    Public,
+    Protected,
+    Private,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Fqn(String);
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Argument {
+    name: String,
+
+    r#type: Type,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Method {
+    name: String,
+
+    arguments: Vec<Argument>,
+    return_type: Type,
+
+    visibility: Visibility,
+    r#static: bool,
+    r#abstract: bool,
+}
+
+#[derive(PartialEq, Clone, Debug)]
 pub struct Function {
     name: String,
-    args: Vec<Type>,
-    ret: Type,
+
+    arguments: Vec<Argument>,
+    return_type: Type,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Trait {
+    name: String,
+
+    constants: HashMap<String, Type>,
+    properties: HashMap<String, Type>,
+    methods: HashMap<String, Method>,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Interface {
+    name: String,
+
+    constants: HashMap<String, Type>,
+    properties: HashMap<String, Type>,
+    methods: HashMap<String, Method>,
+
+    parent_interfaces: Vec<Fqn>,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Enumeration {
+    name: String,
+
+    // FIXME values can be backed by different things
+    values: Vec<String>,
+    constants: HashMap<String, Type>,
+    methods: HashMap<String, Method>,
+
+    implemented_interfaces: Vec<Fqn>,
+    traits_used: Vec<Fqn>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Class {
     name: String,
+
+    constants: HashMap<String, Type>,
+    properties: HashMap<String, Type>,
+    methods: HashMap<String, Method>,
+
+    parent_classes: Vec<Fqn>,
+    traits_used: Vec<Fqn>,
+    implemented_interfaces: Vec<Fqn>,
+
+    readonly: bool,
+    r#abstract: bool,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum CustomType {
+    Class(Class),
+    Interface(Interface),
+    Enumeration(Enumeration),
+    Function(Function),
+    Trait(Trait),
 }
 
 /// A PHP array type.
