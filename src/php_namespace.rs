@@ -2,9 +2,7 @@ use std::convert::Infallible;
 use std::str::FromStr;
 use std::path::PathBuf;
 
-/**
- * A PHP namespace that starts from the root.
- */
+/// A PHP namespace that starts from the root.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct PhpNamespace(Vec<String>);
 
@@ -13,6 +11,7 @@ impl PhpNamespace {
         Self(vec![])
     }
 
+    /// Return true if the `other` namespace begins with our namespace.
     pub fn is_within(&self, other: &Self) -> bool {
         let zipped = self.0.iter().zip(other.0.iter());
         for (a, b) in zipped {
@@ -22,6 +21,15 @@ impl PhpNamespace {
         }
 
         true
+    }
+
+    /// Return true if the namespace starts with the other namespace.
+    ///
+    /// This just calls `is_within()` with the arguments reversed. It does nothing special. The
+    /// reason you would use this is that this function sounds easier to understand than the other.
+    /// Nothing more to it.
+    pub fn starts_with(&self, other: &Self) -> bool {
+        other.is_within(self)
     }
 
     pub fn push(&mut self, s: &str) {
@@ -54,6 +62,7 @@ impl PhpNamespace {
         Self(self.0[other.len()..].iter().map(|s| s.to_owned()).collect())
     }
 
+    /// Convert namespace directly into a `PathBuf`.
     pub fn as_pathbuf(&self, equiv: &PathBuf, full: &Self) -> PathBuf {
         let diff = full.difference(self);
         let mut file = equiv.clone();

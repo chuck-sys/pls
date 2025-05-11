@@ -21,12 +21,13 @@ use std::borrow::Cow;
 
 use crate::code_action::{changes_phpecho, PHPECHO_TITLE, CodeActionValue};
 use crate::compat::*;
-use crate::composer::{Autoload, get_composer_files};
+use crate::composer::{Autoload, get_composer_files, ResolutionError};
 use crate::file::{parse, FileData};
 use crate::php_namespace::PhpNamespace;
 use crate::diagnostics::DiagnosticsOptions;
 use crate::diagnostics;
 use crate::analyze;
+use crate::types::CustomTypeDatabase;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -235,6 +236,7 @@ struct BackendData {
 
     file_trees: HashMap<Uri, FileData>,
     ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
+    types: CustomTypeDatabase,
 }
 
 impl BackendData {
@@ -252,8 +254,10 @@ impl BackendData {
         Self {
             php_parser,
             phpdoc_parser,
+
             file_trees: HashMap::new(),
             ns_to_dir: HashMap::new(),
+            types: CustomTypeDatabase::new(),
         }
     }
 }
@@ -279,6 +283,31 @@ impl Backend {
 
             data: RwLock::new(BackendData::new()),
         }
+    }
+
+    /// Resolves a namespace into a `PathBuf`.
+    ///
+    /// Can guarantee that at the time of calling, the resolved path exists. Which isn't saying
+    /// much but should be worth something, right?
+    ///
+    /// The question of what the path represents remains an exercise to the reader. It could
+    /// represent either a file or a directory, and the user would have to check.
+    async fn resolve_ns(&self, ns: PhpNamespace) -> Result<PathBuf, ResolutionError> {
+        let data_guard = self.data.read().await;
+        for (original_ns, dirs) in data_guard.ns_to_dir.iter() {
+            if !ns.starts_with(original_ns) {
+                continue;
+            }
+
+            for dir in dirs.iter() {
+                let pathbuf = original_ns.as_pathbuf(dir, &ns);
+                if pathbuf.exists() {
+                    return Ok(pathbuf);
+                }
+            }
+        }
+
+        Err(ResolutionError::NamespaceNotFound(ns.clone()))
     }
 
     async fn read_composer_file(
@@ -396,6 +425,7 @@ impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
         let mut workspace_folders = params.workspace_folders.unwrap_or(vec![]);
         if workspace_folders.is_empty() {
+            #[allow(deprecated)]
             if let Some(root_uri) = params.root_uri {
                 workspace_folders.push(WorkspaceFolder {
                     uri: root_uri.clone(),

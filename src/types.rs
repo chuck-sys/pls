@@ -1,5 +1,9 @@
+use tower_lsp_server::lsp_types::Uri;
+
 use std::boxed::Box;
 use std::collections::HashMap;
+
+use crate::php_namespace::PhpNamespace;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Scalar {
@@ -25,7 +29,7 @@ pub struct Nullable(Box<Type>);
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Type {
-    CustomType(Fqn),
+    CustomType(PhpNamespace),
     Scalar(Scalar),
     Array,
     Object,
@@ -46,9 +50,6 @@ pub enum Visibility {
     Protected,
     Private,
 }
-
-#[derive(PartialEq, Clone, Debug)]
-pub struct Fqn(String);
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Argument {
@@ -94,7 +95,7 @@ pub struct Interface {
     properties: HashMap<String, Type>,
     methods: HashMap<String, Method>,
 
-    parent_interfaces: Vec<Fqn>,
+    parent_interfaces: Vec<PhpNamespace>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -106,8 +107,8 @@ pub struct Enumeration {
     constants: HashMap<String, Type>,
     methods: HashMap<String, Method>,
 
-    implemented_interfaces: Vec<Fqn>,
-    traits_used: Vec<Fqn>,
+    implemented_interfaces: Vec<PhpNamespace>,
+    traits_used: Vec<PhpNamespace>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -118,14 +119,15 @@ pub struct Class {
     properties: HashMap<String, Type>,
     methods: HashMap<String, Method>,
 
-    parent_classes: Vec<Fqn>,
-    traits_used: Vec<Fqn>,
-    implemented_interfaces: Vec<Fqn>,
+    parent_classes: Vec<PhpNamespace>,
+    traits_used: Vec<PhpNamespace>,
+    implemented_interfaces: Vec<PhpNamespace>,
 
     readonly: bool,
     r#abstract: bool,
 }
 
+/// A PHP type that isn't a part of the standard.
 #[derive(PartialEq, Clone, Debug)]
 pub enum CustomType {
     Class(Class),
@@ -133,6 +135,29 @@ pub enum CustomType {
     Enumeration(Enumeration),
     Function(Function),
     Trait(Trait),
+}
+
+/// Metadata for the custom type.
+///
+/// Includes the custom type itself.
+///
+/// Should be updated every time the type is edited, and the custom type's dependencies, ad
+/// infinitum. Probably a good use case for salsa, but I'm not smart enough to figure this out.
+#[derive(Clone, Debug)]
+pub struct CustomTypeMeta {
+    t: CustomType,
+    markup: String,
+    src_uri: Uri,
+    src_range: tree_sitter::Range,
+}
+
+#[derive(Clone, Debug)]
+pub struct CustomTypeDatabase(HashMap<PhpNamespace, CustomTypeMeta>);
+
+impl CustomTypeDatabase {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
 }
 
 /// A PHP array type.
