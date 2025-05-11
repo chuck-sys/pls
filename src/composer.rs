@@ -100,6 +100,26 @@ impl Autoload {
             .collect()
     }
 
+    /// Resolves a namespace into a directory name.
+    ///
+    /// We check that the directory exists. We stop at the first valid path.
+    pub fn resolve_as_dir(&self, ns: PhpNamespace) -> Result<PathBuf, ResolutionError> {
+        let mut matching = self.matching_ns(&ns);
+        matching.sort_by_key(|ns| ns.len());
+
+        for k in matching.iter().rev() {
+            let paths = self.psr4.get(&k).ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
+            for path in paths {
+                let x = k.as_pathbuf(path, &ns);
+                if x.is_dir() {
+                    return Ok(x);
+                }
+            }
+        }
+
+        Err(ResolutionError::NamespaceNotFound(ns.clone()))
+    }
+
     /// Resolves a namespace into a file name.
     ///
     /// We check that the file exists. We stop at the first valid path.
