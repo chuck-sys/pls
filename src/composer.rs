@@ -10,7 +10,7 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::php_namespace::PhpNamespace;
+use crate::php_namespace::{SegmentPool, PhpNamespace};
 
 #[derive(Deserialize)]
 struct ComposerScheme {
@@ -142,7 +142,7 @@ impl Autoload {
         Err(ResolutionError::NamespaceNotFound(ns.clone()))
     }
 
-    pub fn from_reader<R>(rdr: R) -> Result<Self, AutoloadError>
+    pub fn from_reader<R>(rdr: R, pool: &mut SegmentPool) -> Result<Self, AutoloadError>
     where
         R: std::io::Read,
     {
@@ -152,7 +152,7 @@ impl Autoload {
         let autoload = composer.autoload.ok_or(AutoloadError::NoAutoload)?;
         let psr4 = autoload.psr4.ok_or(AutoloadError::NoPSR4)?;
         for (ns_str, paths) in &psr4.0 {
-            let ns = PhpNamespace::from_str(ns_str).unwrap();
+            let ns = pool.intern_str(ns_str);
             let paths = match paths {
                 PathScheme::SinglePath(p) => vec![PathBuf::from_str(p).unwrap()],
                 PathScheme::MultiplePaths(vec) => {
@@ -201,7 +201,7 @@ mod test {
 
     use super::Autoload;
     use super::AutoloadError;
-    use super::PhpNamespace;
+    use crate::php_namespace::{SegmentPool, PhpNamespace};
 
     macro_rules! path {
         ($s:expr) => {
@@ -210,21 +210,15 @@ mod test {
     }
 
     macro_rules! autoload {
-        ($($as:literal => $xs:expr),*) => ({
+        ($pool:expr, $($as:literal => $xs:expr),*) => ({
             let mut m = HashMap::new();
 
-            $( m.insert(PhpNamespace::from_str($as).unwrap(), $xs.map(|s| path!(s)).into()); )*
+            $( m.insert($pool.intern_str($as), $xs.map(|s| path!(s)).into()); )*
 
             Autoload {
                 psr4: m,
             }
         })
-    }
-
-    macro_rules! ns {
-        ($ns:literal) => {
-            PhpNamespace::from_str($ns).unwrap()
-        }
     }
 
     fn to_cursor(v: Value) -> Cursor<Vec<u8>> {
@@ -237,7 +231,7 @@ mod test {
             "project": "no autoload",
         }));
 
-        assert_eq!(Autoload::from_reader(data), Err(AutoloadError::NoAutoload));
+        assert_eq!(Autoload::from_reader(data, &mut SegmentPool::new()), Err(AutoloadError::NoAutoload));
     }
 
     #[test]
@@ -249,7 +243,7 @@ mod test {
             },
         }));
 
-        assert_eq!(Autoload::from_reader(data), Err(AutoloadError::NoPSR4));
+        assert_eq!(Autoload::from_reader(data, &mut SegmentPool::new()), Err(AutoloadError::NoPSR4));
     }
 
     #[test]
@@ -264,7 +258,7 @@ mod test {
             },
         }));
 
-        match Autoload::from_reader(data) {
+        match Autoload::from_reader(data, &mut SegmentPool::new()) {
             Err(AutoloadError::BadDeserde(_)) => {}
             x => panic!("{:?}", x),
         }
@@ -283,15 +277,16 @@ mod test {
                 },
             },
         }));
-        let a = match Autoload::from_reader(data) {
+        let mut pool = SegmentPool::new();
+        let a = match Autoload::from_reader(data, &mut pool) {
             Ok(x) => x,
             Err(e) => panic!("{:?}", e),
         };
 
         assert_eq!(a.psr4.len(), 2);
 
-        let monolog = ns!("Monolog\\");
-        let vns = ns!("Vendor\\Namespace\\");
+        let monolog = pool.intern_str("Monolog\\");
+        let vns = pool.intern_str("Vendor\\Namespace\\");
 
         assert!(a.psr4.contains_key(&monolog));
         assert!(a.psr4.contains_key(&vns));
@@ -306,13 +301,15 @@ mod test {
 
     #[test]
     fn no_matching_ns() {
+        let mut pool = SegmentPool::new();
         let a = autoload! {
+            pool,
             "Foo\\Bar\\" => ["src/foo/bar"],
             "Koo\\Tar\\" => ["src/koo/tar"]
         };
         let finds = [
-            ns!("Ark\\Kaltsit"),
-            ns!("Foo\\Ark\\Kaltsit\\"),
+            pool.intern_str("Ark\\Kaltsit"),
+            pool.intern_str("Foo\\Ark\\Kaltsit\\"),
         ];
 
         for to_find in finds.iter() {
@@ -322,22 +319,26 @@ mod test {
 
     #[test]
     fn one_matching_ns() {
+        let mut pool = SegmentPool::new();
         let a = autoload! {
+            pool,
             "Foo\\Bar\\" => ["src/foo/bar"],
             "Koo\\Tar\\" => ["src/koo/tar"]
         };
-        let to_find = ns!("Foo\\Bar\\Ark\\Kaltsit\\");
+        let to_find = pool.intern_str("Foo\\Bar\\Ark\\Kaltsit\\");
 
-        assert_eq!(a.matching_ns(&to_find), vec![ns!("Foo\\Bar\\")]);
+        assert_eq!(a.matching_ns(&to_find), vec![pool.intern_str("Foo\\Bar\\")]);
     }
 
     #[test]
     fn php_storm_resolves() {
+        let mut pool = SegmentPool::new();
         let a = autoload! {
+            pool,
             "PhpStorm\\" => ["phpstorm-stubs/"]
         };
-        let to_find_dir = ns!("PhpStorm\\curl\\");
-        let to_find_file = ns!("PhpStorm\\curl\\curl");
+        let to_find_dir = pool.intern_str("PhpStorm\\curl\\");
+        let to_find_file = pool.intern_str("PhpStorm\\curl\\curl");
 
         assert_eq!(a.resolve_as_dir(to_find_dir).unwrap(), path!("phpstorm-stubs/curl/"));
         assert_eq!(a.resolve_as_file(to_find_file).unwrap(), path!("phpstorm-stubs/curl/curl.php"));

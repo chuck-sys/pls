@@ -23,7 +23,7 @@ use crate::code_action::{changes_phpecho, PHPECHO_TITLE, CodeActionValue};
 use crate::compat::*;
 use crate::composer::{Autoload, get_composer_files, ResolutionError};
 use crate::file::{parse, FileData};
-use crate::php_namespace::PhpNamespace;
+use crate::php_namespace::{SegmentPool, PhpNamespace};
 use crate::diagnostics::DiagnosticsOptions;
 use crate::diagnostics;
 use crate::analyze;
@@ -235,6 +235,7 @@ struct BackendData {
     phpdoc_parser: Parser,
 
     file_trees: HashMap<Uri, FileData>,
+    ns_store: SegmentPool,
     ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
     types: CustomTypeDatabase,
 }
@@ -255,6 +256,7 @@ impl BackendData {
             php_parser,
             phpdoc_parser,
 
+            ns_store: SegmentPool::new(),
             file_trees: HashMap::new(),
             ns_to_dir: HashMap::new(),
             types: CustomTypeDatabase::new(),
@@ -270,7 +272,7 @@ struct InitializeOptions {
 
 pub struct Backend {
     client: Client,
-    init_options: RwLock<InitializeOptions>,
+    init_options: OnceLock<InitializeOptions>,
 
     data: RwLock<BackendData>,
 }
@@ -279,7 +281,7 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            init_options: RwLock::new(InitializeOptions::default()),
+            init_options: OnceLock::new(),
 
             data: RwLock::new(BackendData::new()),
         }
@@ -314,12 +316,13 @@ impl Backend {
         &self,
         composer_file: PathBuf,
     ) -> Result<(), Box<dyn Error + Send>> {
+        let data_guard = &mut *self.data.write().await;
+
         let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         let reader = BufReader::new(file);
         let autoload =
-            Autoload::from_reader(reader).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+            Autoload::from_reader(reader, &mut data_guard.ns_store).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-        let mut data_guard = self.data.write().await;
         for (ns, dirs) in autoload.psr4.into_iter() {
             data_guard
                 .ns_to_dir
@@ -457,12 +460,19 @@ impl LanguageServer for Backend {
         self.read_composer_files(composer_files).await;
 
         if let Some(v) = params.initialization_options {
-            let init_options = &mut *self.init_options.write().await;
-            *init_options = serde_json::from_value(v).map_err(|e| LspError {
-                code: LspErrorCode::InvalidParams,
-                message: Cow::Borrowed("bad init options"),
-                data: Some(e.to_string().into()),
-            })?;
+            match serde_json::from_value(v) {
+                Ok(v) => {
+                    self.init_options.get_or_init(|| v);
+                },
+                Err(e) => {
+                    self.init_options.get_or_init(|| InitializeOptions::default());
+                    return Err(LspError {
+                        code: LspErrorCode::InvalidParams,
+                        message: Cow::Borrowed("bad init options"),
+                        data: Some(e.to_string().into()),
+                    });
+                }
+            }
         }
 
         Ok(InitializeResult {
@@ -482,7 +492,6 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
-        let init_options = self.init_options.read().await;
         let data_guard = &mut *self.data.write().await;
         let (php_tree, comments_tree) = parse(
             (&mut data_guard.php_parser, &mut data_guard.phpdoc_parser),
@@ -491,10 +500,10 @@ impl LanguageServer for Backend {
         );
 
         let mut diagnostics = vec![];
-        if init_options.diagnostics.syntax {
+        if self.init_options.get().unwrap().diagnostics.syntax {
             diagnostics.extend(diagnostics::syntax(php_tree.root_node(), &data.text_document.text));
         }
-        if init_options.diagnostics.undefined {
+        if self.init_options.get().unwrap().diagnostics.undefined {
             diagnostics.extend(analyze::walk(php_tree.root_node(), &data.text_document.text));
         }
 
@@ -521,7 +530,6 @@ impl LanguageServer for Backend {
         // https://users.rust-lang.org/t/rwlock-is-confusing-me-and-or-mutable-borrow-counting/120492/2
         // we gently nudge the borrow checker to give us the actual &mut BackendData instead of
         // going through a DerefMut.
-        let init_options = self.init_options.read().await;
         let data_guard = &mut *self.data.write().await;
         match data_guard.file_trees.get_mut(&data.text_document.uri) {
             Some(entry) => {
@@ -556,10 +564,10 @@ impl LanguageServer for Backend {
                 entry.comments_tree = comments_tree;
 
                 let mut diagnostics = vec![];
-                if init_options.diagnostics.syntax {
+                if self.init_options.get().unwrap().diagnostics.syntax {
                     diagnostics.extend(diagnostics::syntax(entry.php_tree.root_node(), &entry.contents));
                 }
-                if init_options.diagnostics.undefined {
+                if self.init_options.get().unwrap().diagnostics.undefined {
                     diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents));
                 }
 

@@ -1,10 +1,63 @@
 use std::convert::Infallible;
 use std::str::FromStr;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ImportAlias {
+    ns: PhpNamespace,
+    original_symbol: String,
+    aliased_symbol: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AliasTable(HashMap<String, ImportAlias>);
+
+impl AliasTable {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+/// Space-saving way of storing php namespaces.
+#[derive(Debug, Clone)]
+pub struct SegmentPool(HashSet<Arc<str>>);
+
+impl SegmentPool {
+    pub fn new() -> Self {
+        Self(HashSet::new())
+    }
+
+    fn intern_segment(&mut self, s: &str) -> Arc<str> {
+        if let Some(segment) = self.0.get(s) {
+            segment.clone()
+        } else {
+            let a: Arc<str> = Arc::from(s);
+            self.0.insert(a.clone());
+            a
+        }
+    }
+
+    pub fn intern<I, S>(&mut self, ns: I) -> PhpNamespace
+        where
+            I: IntoIterator<Item = S>,
+            S: AsRef<str>,
+    {
+        PhpNamespace(ns.into_iter().map(|s| self.intern_segment(s.as_ref())).collect())
+    }
+
+    pub fn intern_str(&mut self, ns: &str) -> PhpNamespace {
+        PhpNamespace(ns
+            .split('\\')
+            .filter_map(|part| (part != "").then_some(Arc::from(part)))
+            .collect())
+    }
+}
 
 /// A PHP namespace that starts from the root.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct PhpNamespace(Vec<String>);
+pub struct PhpNamespace(Vec<Arc<str>>);
 
 impl PhpNamespace {
     pub fn empty() -> Self {
@@ -32,17 +85,17 @@ impl PhpNamespace {
         other.is_within(self)
     }
 
-    pub fn push(&mut self, s: &str) {
-        self.0.push(s.to_string());
+    pub fn push(&mut self, s: Arc<str>) {
+        self.0.push(s);
     }
 
-    pub fn pop(&mut self) -> Option<String> {
+    pub fn pop(&mut self) -> Option<Arc<str>> {
         self.0.pop()
     }
 
     pub fn extend<I>(&mut self, iter: I)
     where
-        I: IntoIterator<Item = String>,
+        I: IntoIterator<Item = Arc<str>>,
     {
         self.0.extend(iter);
     }
@@ -59,7 +112,7 @@ impl PhpNamespace {
 
         // Because of the `is_within()` check, we know that we are always longer (or at least at
         // the same length) as the other namespace.
-        Self(self.0[other.len()..].iter().map(|s| s.to_owned()).collect())
+        Self(self.0[other.len()..].iter().map(|s| s.clone()).collect())
     }
 
     /// Convert namespace directly into a `PathBuf`.
@@ -67,7 +120,7 @@ impl PhpNamespace {
         let diff = full.difference(self);
         let mut file = equiv.clone();
         for segment in diff.0 {
-            file.push(segment);
+            file.push(segment.to_string());
         }
 
         file
@@ -81,52 +134,43 @@ impl std::fmt::Display for PhpNamespace {
     }
 }
 
-impl FromStr for PhpNamespace {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(PhpNamespace(
-            s.split('\\')
-                .filter(|part| part != &"")
-                .map(|part| part.to_string())
-                .collect(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use super::PhpNamespace;
-    use std::str::FromStr;
+    use super::SegmentPool;
 
     #[test]
     fn equality() {
+        let mut pool = SegmentPool::new();
         let equivalents = [["\\Abc\\Def", "\\Abc\\Def\\"], ["", "\\"]];
 
         for [a, b] in equivalents {
-            assert_eq!(PhpNamespace::from_str(&a), PhpNamespace::from_str(&b));
+            let a = pool.intern_str(a);
+            let b = pool.intern_str(b);
+            assert_eq!(a, b);
         }
     }
 
     #[test]
     fn is_within() {
+        let mut pool = SegmentPool::new();
         let subnamespaces = [["Abc\\", "\\Abc\\Def\\"], ["", "Abc\\Def"]];
 
         for [a, b] in subnamespaces {
-            let ns_a = PhpNamespace::from_str(&a).unwrap();
-            let ns_b = PhpNamespace::from_str(&b).unwrap();
-            assert!(ns_a.is_within(&ns_b));
+            let a = pool.intern_str(a);
+            let b = pool.intern_str(b);
+            assert!(a.is_within(&b));
         }
     }
 
     #[test]
     fn is_not_within() {
+        let mut pool = SegmentPool::new();
         let subnamespaces = [["\\Abc\\", "\\Def\\Abc"]];
 
         for [a, b] in subnamespaces {
-            let ns_a = PhpNamespace::from_str(&a).unwrap();
-            let ns_b = PhpNamespace::from_str(&b).unwrap();
-            assert!(!ns_a.is_within(&ns_b));
+            let a = pool.intern_str(a);
+            let b = pool.intern_str(b);
+            assert!(!a.is_within(&b));
         }
     }
 }
