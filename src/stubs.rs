@@ -3,14 +3,15 @@ use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_php::language_php;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, LazyLock};
-use std::path::PathBuf;
-use std::io::{BufReader, Read};
-use std::fs::File;
 use std::fmt::Display;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::{Arc, LazyLock};
 
-static CONST_QUERY: LazyLock<Query> = LazyLock::new(|| Query::new(&language_php(), "(array_creation_expression) @a").unwrap());
+static CONST_QUERY: LazyLock<Query> =
+    LazyLock::new(|| Query::new(&language_php(), "(array_creation_expression) @a").unwrap());
 
 pub struct FileMapping {
     mapping: HashMap<String, Arc<PathBuf>>,
@@ -37,7 +38,9 @@ impl Display for MappingError {
             MappingError::IOError(error) => error.fmt(f),
             MappingError::NoMappingFound => write!(f, "no mapping found"),
             MappingError::NoChildFound => write!(f, "no child found"),
-            MappingError::UnexpectedType(actual, expected) => write!(f, "found type {} (expected {})", actual, expected),
+            MappingError::UnexpectedType(actual, expected) => {
+                write!(f, "found type {} (expected {})", actual, expected)
+            }
         }
     }
 }
@@ -54,9 +57,14 @@ impl FileMapping {
         }
     }
 
-    fn node_to_single_mapping(node: Node<'_>, content: &str) -> Result<(String, String), MappingError> {
-        let item1 = Self::node_to_string(node.child(0).ok_or(MappingError::NoChildFound)?, content)?;
-        let item2 = Self::node_to_string(node.child(2).ok_or(MappingError::NoChildFound)?, content)?;
+    fn node_to_single_mapping(
+        node: Node<'_>,
+        content: &str,
+    ) -> Result<(String, String), MappingError> {
+        let item1 =
+            Self::node_to_string(node.child(0).ok_or(MappingError::NoChildFound)?, content)?;
+        let item2 =
+            Self::node_to_string(node.child(2).ok_or(MappingError::NoChildFound)?, content)?;
         Ok((item1, item2))
     }
 
@@ -92,10 +100,7 @@ impl FileMapping {
             return Err(MappingError::NoMappingFound);
         }
 
-        Ok(Self {
-            mapping,
-            files,
-        })
+        Ok(Self { mapping, files })
     }
 
     pub fn from_filename(filename: &PathBuf, parser: &mut Parser) -> Result<Self, MappingError> {
@@ -154,9 +159,13 @@ const CLASSES = [
 
         assert_eq!(file_mapping.files.len(), 1);
         assert_eq!(file_mapping.mapping.len(), 8);
-        assert!(file_mapping.files.contains(&PathBuf::from_str("amqp/amqp.php").unwrap()));
+        assert!(file_mapping
+            .files
+            .contains(&PathBuf::from_str("amqp/amqp.php").unwrap()));
         assert!(file_mapping.mapping.contains_key("AMQP\\annel"));
-        assert!(file_mapping.mapping.contains_key("AMQP\\Envelope\\Exception"));
+        assert!(file_mapping
+            .mapping
+            .contains_key("AMQP\\Envelope\\Exception"));
     }
 
     #[test]

@@ -10,7 +10,7 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::php_namespace::{SegmentPool, PhpNamespace};
+use crate::php_namespace::{PhpNamespace, SegmentPool};
 
 #[derive(Deserialize)]
 struct ComposerScheme {
@@ -108,7 +108,10 @@ impl Autoload {
         matching.sort_by_key(|ns| ns.len());
 
         for k in matching.iter().rev() {
-            let paths = self.psr4.get(&k).ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
+            let paths = self
+                .psr4
+                .get(&k)
+                .ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
             for path in paths {
                 let x = k.as_pathbuf(path, &ns);
                 if x.is_dir() {
@@ -127,10 +130,17 @@ impl Autoload {
         let mut matching = self.matching_ns(&ns);
         matching.sort_by_key(|ns| ns.len());
 
-        let name = format!("{:}.php", ns.pop().ok_or(ResolutionError::NamespaceTooShort(ns.clone()))?);
+        let name = format!(
+            "{:}.php",
+            ns.pop()
+                .ok_or(ResolutionError::NamespaceTooShort(ns.clone()))?
+        );
 
         for k in matching.iter().rev() {
-            let paths = self.psr4.get(&k).ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
+            let paths = self
+                .psr4
+                .get(&k)
+                .ok_or(ResolutionError::NamespaceNotFound(ns.clone()))?;
             for path in paths {
                 let x = k.as_pathbuf(path, &ns).join(&name);
                 if x.exists() {
@@ -194,19 +204,19 @@ mod test {
     use serde_json::json;
     use serde_json::Value;
 
+    use std::collections::HashMap;
     use std::io::Cursor;
     use std::path::PathBuf;
     use std::str::FromStr;
-    use std::collections::HashMap;
 
     use super::Autoload;
     use super::AutoloadError;
-    use crate::php_namespace::{SegmentPool, PhpNamespace};
+    use crate::php_namespace::{PhpNamespace, SegmentPool};
 
     macro_rules! path {
         ($s:expr) => {
             PathBuf::from_str($s).unwrap()
-        }
+        };
     }
 
     macro_rules! autoload {
@@ -231,7 +241,10 @@ mod test {
             "project": "no autoload",
         }));
 
-        assert_eq!(Autoload::from_reader(data, &mut SegmentPool::new()), Err(AutoloadError::NoAutoload));
+        assert_eq!(
+            Autoload::from_reader(data, &mut SegmentPool::new()),
+            Err(AutoloadError::NoAutoload)
+        );
     }
 
     #[test]
@@ -243,7 +256,10 @@ mod test {
             },
         }));
 
-        assert_eq!(Autoload::from_reader(data, &mut SegmentPool::new()), Err(AutoloadError::NoPSR4));
+        assert_eq!(
+            Autoload::from_reader(data, &mut SegmentPool::new()),
+            Err(AutoloadError::NoPSR4)
+        );
     }
 
     #[test]
@@ -340,7 +356,13 @@ mod test {
         let to_find_dir = pool.intern_str("PhpStorm\\curl\\");
         let to_find_file = pool.intern_str("PhpStorm\\curl\\curl");
 
-        assert_eq!(a.resolve_as_dir(to_find_dir).unwrap(), path!("phpstorm-stubs/curl/"));
-        assert_eq!(a.resolve_as_file(to_find_file).unwrap(), path!("phpstorm-stubs/curl/curl.php"));
+        assert_eq!(
+            a.resolve_as_dir(to_find_dir).unwrap(),
+            path!("phpstorm-stubs/curl/")
+        );
+        assert_eq!(
+            a.resolve_as_file(to_find_file).unwrap(),
+            path!("phpstorm-stubs/curl/curl.php")
+        );
     }
 }

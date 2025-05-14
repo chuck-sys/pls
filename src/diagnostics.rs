@@ -9,8 +9,10 @@ use std::sync::LazyLock;
 
 use crate::compat::to_range;
 
-static MISSING_QUERY: LazyLock<Query> = LazyLock::new(|| Query::new(&language_php(), "(MISSING) @missings").unwrap());
-static ERROR_QUERY: LazyLock<Query> = LazyLock::new(|| Query::new(&language_php(), "(ERROR) @error").unwrap());
+static MISSING_QUERY: LazyLock<Query> =
+    LazyLock::new(|| Query::new(&language_php(), "(MISSING) @missings").unwrap());
+static ERROR_QUERY: LazyLock<Query> =
+    LazyLock::new(|| Query::new(&language_php(), "(ERROR) @error").unwrap());
 
 #[derive(Deserialize)]
 pub struct DiagnosticsOptions {

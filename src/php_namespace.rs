@@ -1,8 +1,8 @@
-use std::convert::Infallible;
-use std::str::FromStr;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImportAlias {
@@ -40,18 +40,23 @@ impl SegmentPool {
     }
 
     pub fn intern<I, S>(&mut self, ns: I) -> PhpNamespace
-        where
-            I: IntoIterator<Item = S>,
-            S: AsRef<str>,
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
     {
-        PhpNamespace(ns.into_iter().map(|s| self.intern_segment(s.as_ref())).collect())
+        PhpNamespace(
+            ns.into_iter()
+                .map(|s| self.intern_segment(s.as_ref()))
+                .collect(),
+        )
     }
 
     pub fn intern_str(&mut self, ns: &str) -> PhpNamespace {
-        PhpNamespace(ns
-            .split('\\')
-            .filter_map(|part| (part != "").then_some(Arc::from(part)))
-            .collect())
+        PhpNamespace(
+            ns.split('\\')
+                .filter_map(|part| (part != "").then_some(Arc::from(part)))
+                .collect(),
+        )
     }
 }
 

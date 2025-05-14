@@ -207,10 +207,7 @@ impl PartialEq for Nullable {
 
 impl Array {
     fn map_with(key: Type, value: Type) -> Self {
-        Self {
-            key,
-            value,
-        }
+        Self { key, value }
     }
 
     fn elements_with(t: Type) -> Self {
@@ -237,19 +234,17 @@ impl Type {
         }
 
         match other {
-            Self::Or(Or(types)) => {
-                match self {
-                    Self::Or(Or(my_types)) => {
-                        for t in my_types {
-                            if !types.contains(t) {
-                                return false;
-                            }
+            Self::Or(Or(types)) => match self {
+                Self::Or(Or(my_types)) => {
+                    for t in my_types {
+                        if !types.contains(t) {
+                            return false;
                         }
-
-                        true
                     }
-                    x => types.contains(x),
+
+                    true
                 }
+                x => types.contains(x),
             },
             x => x == other,
         }
@@ -326,12 +321,12 @@ impl Type {
 
 #[cfg(test)]
 mod test {
-    use super::{Type, Scalar, Or, Nullable, Union};
+    use super::{Nullable, Or, Scalar, Type, Union};
 
     macro_rules! nullable {
         ($e:expr) => {
             Type::Nullable(Nullable(Box::new($e)))
-        }
+        };
     }
 
     macro_rules! union {
@@ -349,7 +344,7 @@ mod test {
     macro_rules! scalar {
         ($s:ident) => {
             Type::Scalar(Scalar::$s)
-        }
+        };
     }
 
     #[test]
@@ -363,10 +358,37 @@ mod test {
 
     #[test]
     fn nested_normalization() {
-        let a = nullable!(or!(or!(scalar!(Integer), scalar!(Float), scalar!(Null)), scalar!(Boolean)));
-        assert_eq!(a.normalize(), or!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Boolean)));
-        let b = union!(union!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Null)), scalar!(Boolean));
-        assert_eq!(b.normalize(), union!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Boolean)));
+        let a = nullable!(or!(
+            or!(scalar!(Integer), scalar!(Float), scalar!(Null)),
+            scalar!(Boolean)
+        ));
+        assert_eq!(
+            a.normalize(),
+            or!(
+                scalar!(Integer),
+                scalar!(Float),
+                scalar!(Null),
+                scalar!(Boolean)
+            )
+        );
+        let b = union!(
+            union!(
+                scalar!(Integer),
+                scalar!(Float),
+                scalar!(Null),
+                scalar!(Null)
+            ),
+            scalar!(Boolean)
+        );
+        assert_eq!(
+            b.normalize(),
+            union!(
+                scalar!(Integer),
+                scalar!(Float),
+                scalar!(Null),
+                scalar!(Boolean)
+            )
+        );
     }
 
     #[test]
@@ -379,9 +401,18 @@ mod test {
 
     #[test]
     fn is_subtype_of() {
-        let parent = nullable!(or!(or!(scalar!(Integer), scalar!(Float), scalar!(Null)), scalar!(Boolean))).normalize();
+        let parent = nullable!(or!(
+            or!(scalar!(Integer), scalar!(Float), scalar!(Null)),
+            scalar!(Boolean)
+        ))
+        .normalize();
         let children = [
-            or!(scalar!(Integer), scalar!(Float), scalar!(Null), scalar!(Boolean)),
+            or!(
+                scalar!(Integer),
+                scalar!(Float),
+                scalar!(Null),
+                scalar!(Boolean)
+            ),
             scalar!(Float),
             scalar!(Integer),
             scalar!(Null),

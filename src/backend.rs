@@ -1,4 +1,6 @@
-use tower_lsp_server::jsonrpc::{Result as LspResult, Error as LspError, ErrorCode as LspErrorCode};
+use tower_lsp_server::jsonrpc::{
+    Error as LspError, ErrorCode as LspErrorCode, Result as LspResult,
+};
 use tower_lsp_server::lsp_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -11,22 +13,22 @@ use tokio::sync::RwLock;
 use serde::Deserialize;
 use serde_json::json;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::borrow::Cow;
 
-use crate::code_action::{changes_phpecho, PHPECHO_TITLE, CodeActionValue};
-use crate::compat::*;
-use crate::composer::{Autoload, get_composer_files, ResolutionError};
-use crate::file::{parse, FileData};
-use crate::php_namespace::{SegmentPool, PhpNamespace};
-use crate::diagnostics::DiagnosticsOptions;
-use crate::diagnostics;
 use crate::analyze;
+use crate::code_action::{changes_phpecho, CodeActionValue, PHPECHO_TITLE};
+use crate::compat::*;
+use crate::composer::{get_composer_files, Autoload, ResolutionError};
+use crate::diagnostics;
+use crate::diagnostics::DiagnosticsOptions;
+use crate::file::{parse, FileData};
+use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::types::CustomTypeDatabase;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
@@ -320,8 +322,8 @@ impl Backend {
 
         let file = File::open(composer_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
         let reader = BufReader::new(file);
-        let autoload =
-            Autoload::from_reader(reader, &mut data_guard.ns_store).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        let autoload = Autoload::from_reader(reader, &mut data_guard.ns_store)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
         for (ns, dirs) in autoload.psr4.into_iter() {
             data_guard
@@ -448,10 +450,7 @@ impl LanguageServer for Backend {
             self.client
                 .show_message(
                     MessageType::LOG,
-                    format!(
-                        "found {} workspace folder(s)",
-                        workspace_folders.len()
-                    ),
+                    format!("found {} workspace folder(s)", workspace_folders.len()),
                 )
                 .await;
         }
@@ -463,9 +462,10 @@ impl LanguageServer for Backend {
             match serde_json::from_value(v) {
                 Ok(v) => {
                     self.init_options.get_or_init(|| v);
-                },
+                }
                 Err(e) => {
-                    self.init_options.get_or_init(|| InitializeOptions::default());
+                    self.init_options
+                        .get_or_init(|| InitializeOptions::default());
                     return Err(LspError {
                         code: LspErrorCode::InvalidParams,
                         message: Cow::Borrowed("bad init options"),
@@ -501,10 +501,16 @@ impl LanguageServer for Backend {
 
         let mut diagnostics = vec![];
         if self.init_options.get().unwrap().diagnostics.syntax {
-            diagnostics.extend(diagnostics::syntax(php_tree.root_node(), &data.text_document.text));
+            diagnostics.extend(diagnostics::syntax(
+                php_tree.root_node(),
+                &data.text_document.text,
+            ));
         }
         if self.init_options.get().unwrap().diagnostics.undefined {
-            diagnostics.extend(analyze::walk(php_tree.root_node(), &data.text_document.text));
+            diagnostics.extend(analyze::walk(
+                php_tree.root_node(),
+                &data.text_document.text,
+            ));
         }
 
         self.client
@@ -565,7 +571,10 @@ impl LanguageServer for Backend {
 
                 let mut diagnostics = vec![];
                 if self.init_options.get().unwrap().diagnostics.syntax {
-                    diagnostics.extend(diagnostics::syntax(entry.php_tree.root_node(), &entry.contents));
+                    diagnostics.extend(diagnostics::syntax(
+                        entry.php_tree.root_node(),
+                        &entry.contents,
+                    ));
                 }
                 if self.init_options.get().unwrap().diagnostics.undefined {
                     diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents));
@@ -589,7 +598,7 @@ impl LanguageServer for Backend {
                         ),
                     )
                     .await;
-                }
+            }
         }
     }
 
@@ -650,11 +659,8 @@ impl LanguageServer for Backend {
                     data: Some(v.uri.to_string().into()),
                 })?;
 
-                let document_changes = changes_phpecho(
-                    &v.uri,
-                    &file_data.contents,
-                    file_data.version,
-                );
+                let document_changes =
+                    changes_phpecho(&v.uri, &file_data.contents, file_data.version);
 
                 Ok(CodeAction {
                     title: PHPECHO_TITLE.to_string(),
@@ -716,7 +722,10 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn goto_definition(&self, params: GotoDefinitionParams) -> LspResult<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> LspResult<Option<GotoDefinitionResponse>> {
         Ok(Some(GotoDefinitionResponse::Link(Vec::new())))
     }
 }

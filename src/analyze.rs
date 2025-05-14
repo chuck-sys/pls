@@ -41,7 +41,9 @@ fn expression_left(left: Node<'_>, content: &str) -> Vec<String> {
         let mut cursor = left.walk();
         left.children(&mut cursor)
             .into_iter()
-            .filter_map(|n| (n.kind() == "variable_name").then_some(content[n.byte_range()].to_string()))
+            .filter_map(|n| {
+                (n.kind() == "variable_name").then_some(content[n.byte_range()].to_string())
+            })
             .collect()
     } else {
         Vec::new()
@@ -111,8 +113,15 @@ fn expression_right(right: Node<'_>, content: &str, scope: &Scope) -> Vec<Diagno
     diagnostics
 }
 
-fn walk_assignment_expression(assign: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
-    if let (Some(left), Some(right)) = (assign.child_by_field_name("left"), assign.child_by_field_name("right")) {
+fn walk_assignment_expression(
+    assign: Node<'_>,
+    content: &str,
+    scope: &mut Scope,
+) -> Vec<Diagnostic> {
+    if let (Some(left), Some(right)) = (
+        assign.child_by_field_name("left"),
+        assign.child_by_field_name("right"),
+    ) {
         let symbols = expression_left(left, content);
         let problems = walk_expression(right, content, scope);
 
@@ -277,7 +286,11 @@ fn walk_for_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> 
     diagnostics
 }
 
-fn walk_foreach_statement(statement: Node<'_>, content: &str, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_foreach_statement(
+    statement: Node<'_>,
+    content: &str,
+    scope: &mut Scope,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if let Some(iter) = statement.child(2) {
@@ -291,7 +304,9 @@ fn walk_foreach_statement(statement: Node<'_>, content: &str, scope: &mut Scope)
                 scope.symbols.insert(content[x.byte_range()].to_string());
             }
         } else if child.kind() == "variable_name" {
-            scope.symbols.insert(content[child.byte_range()].to_string());
+            scope
+                .symbols
+                .insert(content[child.byte_range()].to_string());
         }
     }
 
@@ -374,9 +389,7 @@ pub fn walk(node: Node<'_>, content: &str) -> Vec<Diagnostic> {
             if kind == "php_tag" {
                 continue;
             } else if kind == "namespace_definition" {
-
             } else if kind == "namespace_use_declaration" {
-
             } else if kind.ends_with("_declaration") || kind == "function_definition" {
                 diagnostics.extend(walk_declaration(child, content, &mut scope));
             } else if kind.ends_with("_statement") {

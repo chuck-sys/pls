@@ -8,8 +8,8 @@ use std::fmt::Display;
 use std::sync::{Arc, OnceLock};
 
 use crate::compat::to_point;
-use crate::types::Type;
 use crate::php_namespace::PhpNamespace;
+use crate::types::Type;
 
 pub struct FileData {
     pub contents: String,
@@ -105,13 +105,9 @@ impl FileData {
             let prev_node = node.prev_sibling();
 
             if kind == "class_declaration" {
-
             } else if kind == "function_declaration" {
-
             } else if kind == "trait_declaration" {
-
             } else if kind == "interface_declaration" {
-
             }
 
             for c in node.children(&mut cursor) {

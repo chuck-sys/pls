@@ -1,6 +1,6 @@
 use tower_lsp_server::lsp_types::*;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use regex::Regex;
 
@@ -48,8 +48,8 @@ pub fn changes_phpecho(uri: &Uri, contents: &str, version: i32) -> Option<Docume
 
 #[cfg(test)]
 mod test {
-    use tower_lsp_server::lsp_types::*;
     use std::str::FromStr;
+    use tower_lsp_server::lsp_types::*;
 
     use super::changes_phpecho;
 
