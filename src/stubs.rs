@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
@@ -44,6 +44,8 @@ impl Display for MappingError {
         }
     }
 }
+
+impl std::error::Error for MappingError {}
 
 impl FileMapping {
     fn node_to_string(node: Node<'_>, content: &str) -> Result<String, MappingError> {
@@ -103,7 +105,10 @@ impl FileMapping {
         Ok(Self { mapping, files })
     }
 
-    pub fn from_filename(filename: &PathBuf, parser: &mut Parser) -> Result<Self, MappingError> {
+    pub fn from_filename<P>(filename: P, parser: &mut Parser) -> Result<Self, MappingError>
+    where
+        P: AsRef<Path>
+    {
         let f = File::open(filename)?;
         let mut buf = BufReader::new(f);
         let mut contents = String::new();

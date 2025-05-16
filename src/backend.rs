@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::analyze;
@@ -30,6 +30,8 @@ use crate::diagnostics::DiagnosticsOptions;
 use crate::file::{parse, FileData};
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::types::CustomTypeDatabase;
+use crate::stubs::FileMapping;
+use crate::stubs;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -243,17 +245,7 @@ struct BackendData {
 }
 
 impl BackendData {
-    fn new() -> Self {
-        let mut php_parser = Parser::new();
-        php_parser
-            .set_language(&language_php())
-            .expect("error loading PHP grammar");
-
-        let mut phpdoc_parser = Parser::new();
-        phpdoc_parser
-            .set_language(&language_phpdoc())
-            .expect("error loading PHPDOC grammar");
-
+    fn new(php_parser: Parser, phpdoc_parser: Parser) -> Self {
         Self {
             php_parser,
             phpdoc_parser,
@@ -275,18 +267,35 @@ struct InitializeOptions {
 pub struct Backend {
     client: Client,
     init_options: OnceLock<InitializeOptions>,
+    builtins_mapping: FileMapping,
 
     data: RwLock<BackendData>,
 }
 
 impl Backend {
-    pub fn new(client: Client) -> Self {
-        Self {
+    pub fn new<P>(stubs_filename: P, client: Client) -> Result<Self, stubs::MappingError>
+    where
+        P: AsRef<Path>
+    {
+        let mut php_parser = Parser::new();
+        php_parser
+            .set_language(&language_php())
+            .expect("error loading PHP grammar");
+
+        let mut phpdoc_parser = Parser::new();
+        phpdoc_parser
+            .set_language(&language_phpdoc())
+            .expect("error loading PHPDOC grammar");
+
+        let builtins_mapping = FileMapping::from_filename(stubs_filename, &mut php_parser)?;
+
+        Ok(Self {
             client,
+            builtins_mapping,
             init_options: OnceLock::new(),
 
-            data: RwLock::new(BackendData::new()),
-        }
+            data: RwLock::new(BackendData::new(php_parser, phpdoc_parser)),
+        })
     }
 
     /// Resolves a namespace into a `PathBuf`.
