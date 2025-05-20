@@ -1,28 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::Infallible;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct ImportAlias {
-    ns: PhpNamespace,
-    original_symbol: String,
-    aliased_symbol: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct AliasTable(HashMap<String, ImportAlias>);
-
-impl AliasTable {
-    pub fn new() -> Self {
-        Self(HashMap::new())
-    }
-}
 
 /// Space-saving way of storing php namespaces.
 #[derive(Debug, Clone)]
-pub struct SegmentPool(HashSet<Arc<str>>);
+pub struct SegmentPool(pub HashSet<Arc<str>>);
 
 impl SegmentPool {
     pub fn new() -> Self {
@@ -52,17 +34,28 @@ impl SegmentPool {
     }
 
     pub fn intern_str(&mut self, ns: &str) -> PhpNamespace {
-        PhpNamespace(
-            ns.split('\\')
-                .filter_map(|part| (part != "").then_some(Arc::from(part)))
-                .collect(),
-        )
+        let mut segments = vec![];
+        for s in ns.split('\\') {
+            if s == "" {
+                continue;
+            }
+
+            if let Some(s) = self.0.get(s) {
+                segments.push(s.clone());
+            } else {
+                let s: Arc<str> = Arc::from(s);
+                segments.push(s.clone());
+                self.0.insert(s);
+            }
+        }
+
+        PhpNamespace(segments)
     }
 }
 
 /// A PHP namespace that starts from the root.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct PhpNamespace(Vec<Arc<str>>);
+pub struct PhpNamespace(pub Vec<Arc<str>>);
 
 impl PhpNamespace {
     pub fn empty() -> Self {

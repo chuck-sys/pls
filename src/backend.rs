@@ -519,6 +519,7 @@ impl LanguageServer for Backend {
             diagnostics.extend(analyze::walk(
                 php_tree.root_node(),
                 &data.text_document.text,
+                &mut data_guard.ns_store,
             ));
         }
 
@@ -586,7 +587,7 @@ impl LanguageServer for Backend {
                     ));
                 }
                 if self.init_options.get().unwrap().diagnostics.undefined {
-                    diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents));
+                    diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents, &mut data_guard.ns_store));
                 }
 
                 self.client

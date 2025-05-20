@@ -1,5 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::sync::LazyLock;
+
+use crate::php_namespace::PhpNamespace;
 
 pub static SUPERGLOBALS: LazyLock<HashSet<String>> = LazyLock::new(|| {
     let mut symbols = HashSet::new();
@@ -41,12 +43,19 @@ pub static SUPERGLOBALS: LazyLock<HashSet<String>> = LazyLock::new(|| {
 /// else.
 #[derive(Clone, Debug)]
 pub struct Scope {
+    /// The namespace we are currently occupying.
+    pub ns: Option<PhpNamespace>,
+
+    pub ns_aliases: HashMap<String, PhpNamespace>,
+
     pub symbols: HashSet<String>,
 }
 
 impl Scope {
     pub fn empty() -> Self {
         Self {
+            ns: None,
+            ns_aliases: HashMap::new(),
             symbols: SUPERGLOBALS.clone(),
         }
     }
@@ -54,6 +63,10 @@ impl Scope {
     pub fn absorb(&mut self, other: Self) {
         for symbol in other.symbols {
             self.symbols.insert(symbol);
+        }
+
+        for (alias, ns) in other.ns_aliases.iter() {
+            self.ns_aliases.insert(alias.to_string(), ns.clone());
         }
     }
 }
