@@ -1,7 +1,11 @@
 name: Deploy mdBook site to Pages
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'docs/book/**'
 
 jobs:
   build:
