@@ -32,6 +32,7 @@ A long list of things I want to have.
     - [x] Variables that aren't assigned
     - [ ] Variables created via a pass-by-reference function call
 - [ ] Warn of variables created in a loop that could be moved out of it
+- [ ] Duplicate namespace aliases
 
 ## Feature flags
 
