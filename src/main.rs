@@ -29,7 +29,11 @@ async fn main() {
         }
 
         if &arg == VERSION_ARG {
-            println!("{} version {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            println!(
+                "{} version {}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION")
+            );
             return;
         } else {
             stubs_filename = Some(arg);
@@ -41,9 +45,10 @@ async fn main() {
         None => {
             println!("error: missing argument: location of stubs file; e.g.: `phplsp phpstorm-stubs/PhpStormStubsMap.php`");
             return;
-        },
+        }
         Some(stubs_filename) => {
-            let (service, socket) = LspService::new(|client| backend::Backend::new(stubs_filename, client).unwrap());
+            let (service, socket) =
+                LspService::new(|client| backend::Backend::new(stubs_filename, client).unwrap());
             Server::new(stdin, stdout, socket).serve(service).await;
         }
     }

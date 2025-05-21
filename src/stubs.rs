@@ -114,7 +114,7 @@ impl FileMapping {
 
     pub fn from_filename<P>(filename: P, parser: &mut Parser) -> Result<Self, MappingError>
     where
-        P: AsRef<Path>
+        P: AsRef<Path>,
     {
         let f = File::open(filename)?;
         let mut buf = BufReader::new(f);
@@ -186,6 +186,13 @@ const CLASSES = [
         let mut p = parser();
         let file_mapping = FileMapping::from_filename(&file_name, &mut p).unwrap();
         assert!(file_mapping.files.len() <= file_mapping.mapping.len());
-        assert_eq!(file_mapping.mapping.get("array_filter").unwrap().to_path_buf(), PathBuf::from_str("standard/standard_9.php").unwrap());
+        assert_eq!(
+            file_mapping
+                .mapping
+                .get("array_filter")
+                .unwrap()
+                .to_path_buf(),
+            PathBuf::from_str("standard/standard_9.php").unwrap()
+        );
     }
 }

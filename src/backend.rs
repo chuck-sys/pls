@@ -29,9 +29,9 @@ use crate::diagnostics;
 use crate::diagnostics::DiagnosticsOptions;
 use crate::file::{parse, FileData};
 use crate::php_namespace::{PhpNamespace, SegmentPool};
-use crate::types::CustomTypesDatabase;
-use crate::stubs::FileMapping;
 use crate::stubs;
+use crate::stubs::FileMapping;
+use crate::types::CustomTypesDatabase;
 
 fn document_symbols_const_decl(const_node: &Node, file_contents: &str) -> Option<DocumentSymbol> {
     let mut cursor = const_node.walk();
@@ -275,7 +275,7 @@ pub struct Backend {
 impl Backend {
     pub fn new<P>(stubs_filename: P, client: Client) -> Result<Self, stubs::MappingError>
     where
-        P: AsRef<Path>
+        P: AsRef<Path>,
     {
         let mut php_parser = Parser::new();
         php_parser
@@ -587,7 +587,11 @@ impl LanguageServer for Backend {
                     ));
                 }
                 if self.init_options.get().unwrap().diagnostics.undefined {
-                    diagnostics.extend(analyze::walk(entry.php_tree.root_node(), &entry.contents, &mut data_guard.ns_store));
+                    diagnostics.extend(analyze::walk(
+                        entry.php_tree.root_node(),
+                        &entry.contents,
+                        &mut data_guard.ns_store,
+                    ));
                 }
 
                 self.client
