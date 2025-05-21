@@ -29,7 +29,7 @@ use crate::diagnostics;
 use crate::diagnostics::DiagnosticsOptions;
 use crate::file::{parse, FileData};
 use crate::php_namespace::{PhpNamespace, SegmentPool};
-use crate::types::CustomTypeDatabase;
+use crate::types::CustomTypesDatabase;
 use crate::stubs::FileMapping;
 use crate::stubs;
 
@@ -241,7 +241,7 @@ struct BackendData {
     file_trees: HashMap<Uri, FileData>,
     ns_store: SegmentPool,
     ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
-    types: CustomTypeDatabase,
+    types: CustomTypesDatabase,
 }
 
 impl BackendData {
@@ -253,7 +253,7 @@ impl BackendData {
             ns_store: SegmentPool::new(),
             file_trees: HashMap::new(),
             ns_to_dir: HashMap::new(),
-            types: CustomTypeDatabase::new(),
+            types: CustomTypesDatabase::new(),
         }
     }
 }

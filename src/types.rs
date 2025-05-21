@@ -152,9 +152,9 @@ pub struct CustomTypeMeta {
 }
 
 #[derive(Clone, Debug)]
-pub struct CustomTypeDatabase(HashMap<PhpNamespace, CustomTypeMeta>);
+pub struct CustomTypesDatabase(pub HashMap<PhpNamespace, CustomTypeMeta>);
 
-impl CustomTypeDatabase {
+impl CustomTypesDatabase {
     pub fn new() -> Self {
         Self(HashMap::new())
     }

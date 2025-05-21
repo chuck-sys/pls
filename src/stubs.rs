@@ -15,6 +15,8 @@ static CONST_QUERY: LazyLock<Query> =
 
 pub struct FileMapping {
     mapping: HashMap<String, Arc<PathBuf>>,
+
+    /// Set of files involved, interned to probably keep memory usage low.
     files: HashSet<Arc<PathBuf>>,
 }
 
@@ -24,6 +26,8 @@ pub enum MappingError {
     NoMappingFound,
     NoChildFound,
     UnexpectedType(&'static str, &'static str),
+    MissingNameNode,
+    BadStubName(String),
 }
 
 impl From<std::io::Error> for MappingError {
@@ -38,8 +42,12 @@ impl Display for MappingError {
             MappingError::IOError(error) => error.fmt(f),
             MappingError::NoMappingFound => write!(f, "no mapping found"),
             MappingError::NoChildFound => write!(f, "no child found"),
+            MappingError::MissingNameNode => write!(f, "missing name node"),
             MappingError::UnexpectedType(actual, expected) => {
                 write!(f, "found type {} (expected {})", actual, expected)
+            }
+            MappingError::BadStubName(name) => {
+                write!(f, "unknown stubs mapping with name {name}")
             }
         }
     }
@@ -76,9 +84,10 @@ impl FileMapping {
         let mut files: HashSet<Arc<PathBuf>> = HashSet::new();
         let mut mapping = HashMap::new();
 
-        if let Some((m, _)) = captures.next() {
-            if let Some(c) = m.captures.iter().next() {
+        while let Some((m, _)) = captures.next() {
+            for c in m.captures.iter() {
                 let array_root = c.node;
+
                 let mut cursor = array_root.walk();
                 for child in array_root.children(&mut cursor) {
                     if child.kind() != "array_element_initializer" {
@@ -98,8 +107,6 @@ impl FileMapping {
                     files.insert(file);
                 }
             }
-        } else {
-            return Err(MappingError::NoMappingFound);
         }
 
         Ok(Self { mapping, files })
@@ -179,5 +186,6 @@ const CLASSES = [
         let mut p = parser();
         let file_mapping = FileMapping::from_filename(&file_name, &mut p).unwrap();
         assert!(file_mapping.files.len() <= file_mapping.mapping.len());
+        assert_eq!(file_mapping.mapping.get("array_filter").unwrap().to_path_buf(), PathBuf::from_str("standard/standard_9.php").unwrap());
     }
 }
