@@ -6,10 +6,9 @@ use crate::compat::to_range;
 use crate::scope::{Scope, SUPERGLOBALS};
 use crate::php_namespace::SegmentPool;
 
-fn function_parameters(params: Node<'_>, content: &str) -> (Vec<String>, Vec<Diagnostic>) {
+fn function_parameters(params: Node<'_>, content: &str, diagnostics: &mut Vec<Diagnostic>) -> Vec<String> {
     let mut cursor = params.walk();
     let mut symbols = Vec::new();
-    let mut diagnostics = Vec::new();
 
     for child in params.children(&mut cursor) {
         if let Some(name_node) = child.child_by_field_name("name") {
@@ -29,7 +28,7 @@ fn function_parameters(params: Node<'_>, content: &str) -> (Vec<String>, Vec<Dia
         }
     }
 
-    (symbols, diagnostics)
+    symbols
 }
 
 /// LHS of an assignment expression.
@@ -51,10 +50,9 @@ fn expression_left(left: Node<'_>, content: &str) -> Vec<String> {
     }
 }
 
-fn expression_right(right: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &Scope) -> Vec<Diagnostic> {
+fn expression_right(right: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &Scope, diagnostics: &mut Vec<Diagnostic>) {
     let mut cursor = right.walk();
     let mut stack = Vec::with_capacity(10);
-    let mut diagnostics = Vec::with_capacity(2);
     stack.push(right);
 
     while let Some(n) = stack.pop() {
@@ -73,26 +71,22 @@ fn expression_right(right: Node<'_>, content: &str, ns_store: &mut SegmentPool, 
         } else if kind == "arrow_function" {
             let mut arrow_function_scope = scope.clone();
             if let Some(params_node) = n.child_by_field_name("parameters") {
-                let (params, diags) = function_parameters(params_node, content);
+                let params = function_parameters(params_node, content, diagnostics);
                 for param in params {
                     arrow_function_scope.symbols.insert(param);
                 }
-
-                diagnostics.extend(diags);
             }
 
             if let Some(body) = n.child_by_field_name("body") {
-                diagnostics.extend(walk_expression(body, content, ns_store, &mut arrow_function_scope));
+                walk_expression(body, content, ns_store, &mut arrow_function_scope, diagnostics);
             }
         } else if kind == "anonymous_function" {
             let mut anonymous_scope = scope.clone();
             if let Some(params_node) = n.child_by_field_name("parameters") {
-                let (params, diags) = function_parameters(params_node, content);
+                let params = function_parameters(params_node, content, diagnostics);
                 for param in params {
                     anonymous_scope.symbols.insert(param);
                 }
-
-                diagnostics.extend(diags);
             }
 
             let mut cursor = n.walk();
@@ -104,14 +98,12 @@ fn expression_right(right: Node<'_>, content: &str, ns_store: &mut SegmentPool, 
             }
 
             if let Some(body) = n.child_by_field_name("body") {
-                diagnostics.extend(walk_expression(body, content, ns_store, &mut anonymous_scope));
+                walk_expression(body, content, ns_store, &mut anonymous_scope, diagnostics);
             }
         } else {
             stack.extend(n.children(&mut cursor));
         }
     }
-
-    diagnostics
 }
 
 fn walk_assignment_expression(
@@ -119,39 +111,35 @@ fn walk_assignment_expression(
     content: &str,
     ns_store: &mut SegmentPool,
     scope: &mut Scope,
-) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     if let (Some(left), Some(right)) = (
         assign.child_by_field_name("left"),
         assign.child_by_field_name("right"),
     ) {
         let symbols = expression_left(left, content);
-        let problems = walk_expression(right, content, ns_store, scope);
+        walk_expression(right, content, ns_store, scope, diagnostics);
 
         for symbol in symbols {
             scope.symbols.insert(symbol);
         }
-
-        problems
-    } else {
-        Vec::new()
     }
 }
 
-fn walk_if_statement(stmt: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_if_statement(stmt: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     let mut cursor = stmt.walk();
-    let mut diagnostics = Vec::new();
     let mut scopes = Vec::new();
 
     if let Some(condition) = stmt.child_by_field_name("condition") {
         let mut s = scope.clone();
         // i'm pretty sure that you can also do assignments in conditionals
-        diagnostics.extend(walk_expression(condition, content, ns_store, &mut s));
+        walk_expression(condition, content, ns_store, &mut s, diagnostics);
         scopes.push(s);
     }
 
     if let Some(body) = stmt.child_by_field_name("body") {
         let mut s = scope.clone();
-        diagnostics.extend(walk_statement(body, content, ns_store, &mut s));
+        walk_statement(body, content, ns_store, &mut s, diagnostics);
         scopes.push(s);
     }
 
@@ -161,14 +149,14 @@ fn walk_if_statement(stmt: Node<'_>, content: &str, ns_store: &mut SegmentPool, 
         if kind == "else_if_clause" {
             if let Some(condition) = alt.child_by_field_name("condition") {
                 let mut s = scope.clone();
-                diagnostics.extend(walk_expression(condition, content, ns_store, &mut s));
+                walk_expression(condition, content, ns_store, &mut s, diagnostics);
                 scopes.push(s);
             }
         }
 
         if let Some(body) = alt.child_by_field_name("body") {
             let mut s = scope.clone();
-            diagnostics.extend(walk_statement(body, content, ns_store, &mut s));
+            walk_statement(body, content, ns_store, &mut s, diagnostics);
             scopes.push(s);
         }
     }
@@ -176,11 +164,9 @@ fn walk_if_statement(stmt: Node<'_>, content: &str, ns_store: &mut SegmentPool, 
     for s in scopes {
         scope.absorb(s);
     }
-
-    diagnostics
 }
 
-fn walk_class_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_class_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     if let Some(name) = decl.child_by_field_name("name") {
         scope.symbols.insert(content[name.byte_range()].to_string());
     }
@@ -188,104 +174,85 @@ fn walk_class_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentP
     if let Some(body) = decl.child_by_field_name("body") {
         if body.kind() == "declaration_list" {
             let mut cursor = body.walk();
-            let mut diagnostics = Vec::new();
             for child in body.children(&mut cursor) {
                 // each declaration should have it's own scope
                 let mut scope = scope.clone();
                 scope.symbols.insert("self".to_string());
-                diagnostics.extend(walk_declaration(child, content, ns_store, &mut scope));
+                walk_declaration(child, content, ns_store, &mut scope, diagnostics);
             }
-
-            diagnostics
-        } else {
-            Vec::new()
         }
-    } else {
-        Vec::new()
     }
 }
 
-fn walk_function_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_function_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     if let Some(name) = decl.child_by_field_name("name") {
         scope.symbols.insert(content[name.byte_range()].to_string());
     }
 
-    let mut diagnostics = Vec::new();
     let mut function_scope = scope.clone();
 
     if let Some(params_node) = decl.child_by_field_name("parameters") {
-        let (params, diags) = function_parameters(params_node, content);
+        let params = function_parameters(params_node, content, diagnostics);
         for param in params {
             function_scope.symbols.insert(param);
         }
-
-        diagnostics = diags;
     }
 
     if let Some(body) = decl.child_by_field_name("body") {
-        let diags = walk_statement(body, content, ns_store, &mut function_scope);
-        diagnostics.extend(diags)
+        walk_statement(body, content, ns_store, &mut function_scope, diagnostics);
     }
-
-    diagnostics
 }
 
-fn walk_method_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_method_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     scope.symbols.insert("$this".to_string());
 
-    walk_function_declaration(decl, content, ns_store, scope)
+    walk_function_declaration(decl, content, ns_store, scope, diagnostics)
 }
 
-fn walk_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_declaration(decl: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     let kind = decl.kind();
 
     if kind == "class_declaration" {
-        walk_class_declaration(decl, content, ns_store, scope)
+        walk_class_declaration(decl, content, ns_store, scope, diagnostics)
     } else if kind == "function_definition" || kind == "function_static_declaration" {
-        walk_function_declaration(decl, content, ns_store, scope)
+        walk_function_declaration(decl, content, ns_store, scope, diagnostics)
     } else if kind == "method_declaration" {
-        walk_method_declaration(decl, content, ns_store, scope)
-    } else {
-        vec![]
+        walk_method_declaration(decl, content, ns_store, scope, diagnostics)
     }
 }
 
-fn walk_expression(expression: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_expression(expression: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     let kind = expression.kind();
 
     if kind == "assignment_expression" {
-        walk_assignment_expression(expression, content, ns_store, scope)
+        walk_assignment_expression(expression, content, ns_store, scope, diagnostics)
     } else if kind == "parenthesized_expression" {
         if let Some(expr) = expression.child(1) {
-            walk_expression(expr, content, ns_store, scope)
+            walk_expression(expr, content, ns_store, scope, diagnostics)
         } else {
-            expression_right(expression, content, ns_store, scope)
+            expression_right(expression, content, ns_store, scope, diagnostics)
         }
     } else {
-        expression_right(expression, content, ns_store, scope)
+        expression_right(expression, content, ns_store, scope, diagnostics)
     }
 }
 
-fn walk_for_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
+fn walk_for_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     if let Some(init) = statement.child_by_field_name("initialize") {
-        diagnostics.extend(walk_expression(init, content, ns_store, scope));
+        walk_expression(init, content, ns_store, scope, diagnostics);
     }
 
     if let Some(cond) = statement.child_by_field_name("condition") {
-        diagnostics.extend(walk_expression(cond, content, ns_store, scope));
+        walk_expression(cond, content, ns_store, scope, diagnostics);
     }
 
     if let Some(update) = statement.child_by_field_name("update") {
-        diagnostics.extend(walk_expression(update, content, ns_store, scope));
+        walk_expression(update, content, ns_store, scope, diagnostics);
     }
 
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, ns_store, scope));
+        walk_statement(body, content, ns_store, scope, diagnostics);
     }
-
-    diagnostics
 }
 
 fn walk_foreach_statement(
@@ -293,11 +260,10 @@ fn walk_foreach_statement(
     content: &str,
     ns_store: &mut SegmentPool,
     scope: &mut Scope,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     if let Some(iter) = statement.child(2) {
-        diagnostics.extend(walk_expression(iter, content, ns_store, scope));
+        walk_expression(iter, content, ns_store, scope, diagnostics);
     }
 
     if let Some(child) = statement.child(4) {
@@ -314,69 +280,52 @@ fn walk_foreach_statement(
     }
 
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, ns_store, scope));
+        walk_statement(body, content, ns_store, scope, diagnostics);
     }
-
-    diagnostics
 }
 
-fn walk_while_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
+fn walk_while_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     if let Some(condition) = statement.child_by_field_name("condition") {
-        diagnostics.extend(walk_expression(condition, content, ns_store, scope));
+        walk_expression(condition, content, ns_store, scope, diagnostics);
     }
 
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, ns_store, scope));
+        walk_statement(body, content, ns_store, scope, diagnostics);
     }
-
-    diagnostics
 }
 
-fn walk_do_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
+fn walk_do_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     if let Some(body) = statement.child_by_field_name("body") {
-        diagnostics.extend(walk_statement(body, content, ns_store, scope));
+        walk_statement(body, content, ns_store, scope, diagnostics);
     }
 
     if let Some(condition) = statement.child_by_field_name("condition") {
-        diagnostics.extend(walk_expression(condition, content, ns_store, scope));
+        walk_expression(condition, content, ns_store, scope, diagnostics);
     }
-
-    diagnostics
 }
 
-fn walk_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope) -> Vec<Diagnostic> {
+fn walk_statement(statement: Node<'_>, content: &str, ns_store: &mut SegmentPool, scope: &mut Scope, diagnostics: &mut Vec<Diagnostic>) {
     let kind = statement.kind();
 
     if kind == "compound_statement" {
         let mut cursor = statement.walk();
-        let mut diagnostics = Vec::new();
         for child in statement.children(&mut cursor) {
-            diagnostics.extend(walk_statement(child, content, ns_store, scope));
+            walk_statement(child, content, ns_store, scope, diagnostics);
         }
-
-        diagnostics
     } else if kind == "expression_statement" {
         if let Some(expression) = statement.child(0) {
-            walk_expression(expression, content, ns_store, scope)
-        } else {
-            Vec::new()
+            walk_expression(expression, content, ns_store, scope, diagnostics);
         }
     } else if kind == "if_statement" {
-        walk_if_statement(statement, content, ns_store, scope)
+        walk_if_statement(statement, content, ns_store, scope, diagnostics);
     } else if kind == "for_statement" {
-        walk_for_statement(statement, content, ns_store, scope)
+        walk_for_statement(statement, content, ns_store, scope, diagnostics);
     } else if kind == "foreach_statement" {
-        walk_foreach_statement(statement, content, ns_store, scope)
+        walk_foreach_statement(statement, content, ns_store, scope, diagnostics);
     } else if kind == "while_statement" {
-        walk_while_statement(statement, content, ns_store, scope)
+        walk_while_statement(statement, content, ns_store, scope, diagnostics);
     } else if kind == "do_statement" {
-        walk_do_statement(statement, content, ns_store, scope)
-    } else {
-        Vec::new()
+        walk_do_statement(statement, content, ns_store, scope, diagnostics);
     }
 }
 
@@ -448,9 +397,9 @@ pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool) -> Vec<Di
             } else if kind == "namespace_use_declaration" {
                 walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind.ends_with("_declaration") || kind == "function_definition" {
-                diagnostics.extend(walk_declaration(child, content, ns_store, &mut scope));
+                walk_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind.ends_with("_statement") {
-                diagnostics.extend(walk_statement(child, content, ns_store, &mut scope));
+                walk_statement(child, content, ns_store, &mut scope, &mut diagnostics);
             }
         }
     }
@@ -542,13 +491,15 @@ mod test {
 
         let stmt1 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt1.kind());
-        let diags = super::walk_statement(stmt1, src, &mut SegmentPool::new(), &mut scope);
+        let mut diags = vec![];
+        super::walk_statement(stmt1, src, &mut SegmentPool::new(), &mut scope, &mut diags);
         assert!(diags.is_empty());
         assert_eq!(10, scope.symbols.len());
 
         let stmt2 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt2.kind());
-        let diags = super::walk_statement(stmt2, src, &mut SegmentPool::new(), &mut scope);
+        diags = vec![];
+        super::walk_statement(stmt2, src, &mut SegmentPool::new(), &mut scope, &mut diags);
         assert_eq!(1, diags.len());
         let diag = &diags[0];
         assert_eq!("undefined variable $var2", &diag.message);
@@ -559,7 +510,8 @@ mod test {
 
         let stmt3 = iter.next().unwrap();
         assert_eq!("expression_statement", stmt3.kind());
-        let diags = super::walk_statement(stmt3, src, &mut SegmentPool::new(), &mut scope);
+        diags = vec![];
+        super::walk_statement(stmt3, src, &mut SegmentPool::new(), &mut scope, &mut diags);
         assert_eq!(1, diags.len());
         let diag = &diags[0];
         assert_eq!("undefined variable $var4", &diag.message);
