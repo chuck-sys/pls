@@ -114,7 +114,7 @@ fn expression_right(
             }
 
             if let Some(body) = n.child_by_field_name("body") {
-                walk_expression(body, content, ns_store, &mut anonymous_scope, diagnostics);
+                walk_statement(body, content, ns_store, &mut anonymous_scope, diagnostics);
             }
         } else {
             stack.extend(n.children(&mut cursor));
@@ -661,6 +661,17 @@ mod test {
             do {
                 $i = 0;
             } while ($i > 10);",
+            "<?php
+            array_map(function () {
+                $a = 3;
+                return $a;
+            }, []);",
+            "<?php
+            $x = 1;
+            array_map(function() use ($x) {
+                $a = $x;
+                return $a;
+            }, []);",
         ];
 
         for src in srcs {
