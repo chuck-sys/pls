@@ -720,7 +720,7 @@ mod test {
                 break;
             }
 
-            $z = $y;"
+            $z = $y;",
         ];
 
         for src in srcs {
