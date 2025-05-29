@@ -334,6 +334,10 @@ fn walk_foreach_statement(
             scope
                 .symbols
                 .insert(content[child.byte_range()].to_string());
+        } else if child.kind() == "by_ref" {
+            if let Some(v) = child.child(1) {
+                scope.symbols.insert(content[v.byte_range()].to_string());
+            }
         }
     }
 
@@ -721,6 +725,13 @@ mod test {
             }
 
             $z = $y;",
+            "<?php
+            $l = [1, 2, 3];
+            $sum = 0;
+            foreach ($l as &$item) {
+                $sum += $item;
+                $item = 0;
+            }",
         ];
 
         for src in srcs {
