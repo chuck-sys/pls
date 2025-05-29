@@ -374,6 +374,34 @@ fn walk_do_statement(
     }
 }
 
+fn walk_switch_statement(
+    statement: Node<'_>,
+    content: &str,
+    ns_store: &mut SegmentPool,
+    scope: &mut Scope,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(expr) = statement.child_by_field_name("condition") {
+        walk_expression(expr, content, ns_store, scope, diagnostics);
+    }
+
+    if let Some(body) = statement.child_by_field_name("body") {
+        let mut cursor = body.walk();
+        for statement in body.children(&mut cursor) {
+            if statement.kind() == "case_statement" || statement.kind() == "default_statement" {
+                if let Some(name) = statement.child_by_field_name("value") {
+                    walk_expression(name, content, ns_store, scope, diagnostics);
+                }
+
+                let mut another_cursor = statement.walk();
+                for s in statement.children(&mut another_cursor) {
+                    walk_statement(s, content, ns_store, scope, diagnostics);
+                }
+            }
+        }
+    }
+}
+
 fn walk_statement(
     statement: Node<'_>,
     content: &str,
@@ -402,6 +430,8 @@ fn walk_statement(
         walk_while_statement(statement, content, ns_store, scope, diagnostics);
     } else if kind == "do_statement" {
         walk_do_statement(statement, content, ns_store, scope, diagnostics);
+    } else if kind == "switch_statement" {
+        walk_switch_statement(statement, content, ns_store, scope, diagnostics);
     }
 }
 
@@ -672,6 +702,20 @@ mod test {
                 $a = $x;
                 return $a;
             }, []);",
+            "<?php
+            $x = $_GET['x'];
+            switch ($x) {
+            case 3:
+            case 4:
+                $y = 300;
+                break;
+            case 6:
+            default:
+                $y = 400;
+                break;
+            }
+
+            $z = $y;"
         ];
 
         for src in srcs {
