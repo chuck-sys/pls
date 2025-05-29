@@ -432,6 +432,11 @@ fn walk_statement(
         walk_do_statement(statement, content, ns_store, scope, diagnostics);
     } else if kind == "switch_statement" {
         walk_switch_statement(statement, content, ns_store, scope, diagnostics);
+    } else if kind == "echo_statement" {
+        let mut cursor = statement.walk();
+        for child in statement.children(&mut cursor) {
+            walk_expression(child, content, ns_store, scope, diagnostics);
+        }
     }
 }
 
@@ -763,6 +768,8 @@ mod test {
             do {
                 $i = 0;
             } while ($i = $x);",
+            "<?php
+            echo $x;",
         ];
 
         for src in srcs {
