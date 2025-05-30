@@ -53,78 +53,78 @@ pub enum Visibility {
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Argument {
-    name: String,
+    pub name: String,
 
-    r#type: Type,
+    pub r#type: Type,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Method {
-    name: String,
+    pub name: String,
 
-    arguments: Vec<Argument>,
-    return_type: Type,
+    pub arguments: Vec<Argument>,
+    pub return_type: Type,
 
-    visibility: Visibility,
-    r#static: bool,
-    r#abstract: bool,
+    pub visibility: Visibility,
+    pub r#static: bool,
+    pub r#abstract: bool,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Function {
-    name: String,
+    pub name: String,
 
-    arguments: Vec<Argument>,
-    return_type: Type,
+    pub arguments: Vec<Argument>,
+    pub return_type: Type,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Trait {
-    name: String,
+    pub name: String,
 
-    constants: HashMap<String, Type>,
-    properties: HashMap<String, Type>,
-    methods: HashMap<String, Method>,
+    pub constants: HashMap<String, Type>,
+    pub properties: HashMap<String, Type>,
+    pub methods: HashMap<String, Method>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Interface {
-    name: String,
+    pub name: String,
 
-    constants: HashMap<String, Type>,
-    properties: HashMap<String, Type>,
-    methods: HashMap<String, Method>,
+    pub constants: HashMap<String, Type>,
+    pub properties: HashMap<String, Type>,
+    pub methods: HashMap<String, Method>,
 
-    parent_interfaces: Vec<PhpNamespace>,
+    pub parent_interfaces: Vec<PhpNamespace>,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Enumeration {
-    name: String,
+    pub name: String,
 
     // FIXME values can be backed by different things
-    values: Vec<String>,
-    constants: HashMap<String, Type>,
-    methods: HashMap<String, Method>,
+    pub values: Vec<String>,
+    pub constants: HashMap<String, Type>,
+    pub methods: HashMap<String, Method>,
 
-    implemented_interfaces: Vec<PhpNamespace>,
-    traits_used: Vec<PhpNamespace>,
+    pub implemented_interfaces: Vec<PhpNamespace>,
+    pub traits_used: Vec<PhpNamespace>,
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Default)]
 pub struct Class {
-    name: String,
+    pub name: String,
 
-    constants: HashMap<String, Type>,
-    properties: HashMap<String, Type>,
-    methods: HashMap<String, Method>,
+    pub constants: HashMap<String, Type>,
+    pub properties: HashMap<String, Type>,
+    pub methods: HashMap<String, Method>,
 
-    parent_classes: Vec<PhpNamespace>,
-    traits_used: Vec<PhpNamespace>,
-    implemented_interfaces: Vec<PhpNamespace>,
+    pub parent_classes: Vec<PhpNamespace>,
+    pub traits_used: Vec<PhpNamespace>,
+    pub implemented_interfaces: Vec<PhpNamespace>,
 
-    readonly: bool,
-    r#abstract: bool,
+    pub readonly: bool,
+    pub r#abstract: bool,
 }
 
 /// A PHP type that isn't a part of the standard.
@@ -145,10 +145,9 @@ pub enum CustomType {
 /// infinitum. Probably a good use case for salsa, but I'm not smart enough to figure this out.
 #[derive(Clone, Debug)]
 pub struct CustomTypeMeta {
-    t: CustomType,
-    markup: String,
-    src_uri: Uri,
-    src_range: tree_sitter::Range,
+    pub t: CustomType,
+    pub markup: String,
+    pub src_range: tree_sitter::Range,
 }
 
 #[derive(Clone, Debug)]

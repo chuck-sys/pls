@@ -2,9 +2,12 @@ use tower_lsp_server::lsp_types::*;
 
 use tree_sitter::Node;
 
+use std::sync::Arc;
+
 use crate::compat::to_range;
-use crate::php_namespace::SegmentPool;
+use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::scope::{Scope, SUPERGLOBALS};
+use crate::types::{Class, CustomType, CustomTypeMeta, CustomTypesDatabase};
 
 fn function_parameters(
     params: Node<'_>,
@@ -193,10 +196,24 @@ fn walk_class_declaration(
     content: &str,
     ns_store: &mut SegmentPool,
     scope: &mut Scope,
+    types: &mut CustomTypesDatabase,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let mut t = Class::default();
+    let mut markup = String::new();
+
+    if let Some(prev) = decl.prev_sibling() {
+        if prev.kind() == "comment" {
+            let comment = &content[prev.byte_range()];
+            if comment.starts_with("/**") {
+                markup = comment.to_string();
+            }
+        }
+    }
+
     if let Some(name) = decl.child_by_field_name("name") {
         scope.symbols.insert(content[name.byte_range()].to_string());
+        t.name = content[name.byte_range()].to_string();
     }
 
     if let Some(body) = decl.child_by_field_name("body") {
@@ -206,9 +223,24 @@ fn walk_class_declaration(
                 // each declaration should have it's own scope
                 let mut scope = scope.clone();
                 scope.symbols.insert("self".to_string());
-                walk_declaration(child, content, ns_store, &mut scope, diagnostics);
+                walk_declaration(child, content, ns_store, &mut scope, types, diagnostics);
             }
         }
+    }
+
+    if t.name != "" {
+        let ns = if let Some(ns) = &scope.ns {
+            let mut ns = ns.clone();
+            ns.push(Arc::from(t.name.as_str()));
+            ns
+        } else {
+            PhpNamespace::empty()
+        };
+        types.0.insert(ns, CustomTypeMeta {
+            t: CustomType::Class(t),
+            markup,
+            src_range: decl.range(),
+        });
     }
 }
 
@@ -254,12 +286,13 @@ fn walk_declaration(
     content: &str,
     ns_store: &mut SegmentPool,
     scope: &mut Scope,
+    types: &mut CustomTypesDatabase,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let kind = decl.kind();
 
     if kind == "class_declaration" {
-        walk_class_declaration(decl, content, ns_store, scope, diagnostics)
+        walk_class_declaration(decl, content, ns_store, scope, types, diagnostics)
     } else if kind == "function_definition" || kind == "function_static_declaration" {
         walk_function_declaration(decl, content, ns_store, scope, diagnostics)
     } else if kind == "method_declaration" {
@@ -510,7 +543,7 @@ pub fn walk_ns_use_declaration(
     }
 }
 
-pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool) -> Vec<Diagnostic> {
+pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool, types: &mut CustomTypesDatabase) -> Vec<Diagnostic> {
     let mut cursor = node.walk();
     let mut diagnostics = Vec::new();
 
@@ -529,7 +562,7 @@ pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool) -> Vec<Di
             } else if kind == "namespace_use_declaration" {
                 walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind.ends_with("_declaration") || kind == "function_definition" {
-                walk_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
+                walk_declaration(child, content, ns_store, &mut scope, types, &mut diagnostics);
             } else if kind.ends_with("_statement") {
                 walk_statement(child, content, ns_store, &mut scope, &mut diagnostics);
             }
@@ -546,6 +579,7 @@ mod test {
 
     use crate::php_namespace::SegmentPool;
     use crate::scope::Scope;
+    use crate::types::{CustomType, CustomTypesDatabase};
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -566,7 +600,7 @@ mod test {
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
         let mut pool = SegmentPool::new();
-        let diags = super::walk(root_node, src, &mut pool);
+        let diags = super::walk(root_node, src, &mut pool, &mut CustomTypesDatabase::new());
         assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         assert_eq!(pool.0.len(), 4, "pool = {:?}", pool.0);
     }
@@ -581,7 +615,7 @@ mod test {
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
         let mut pool = SegmentPool::new();
-        let diags = super::walk(root_node, src, &mut pool);
+        let diags = super::walk(root_node, src, &mut pool, &mut CustomTypesDatabase::new());
         assert_eq!(diags.len(), 1, "src = {}\ndiags = {:?}", src, diags);
         assert_eq!(pool.0.len(), 4, "pool = {:?}", pool.0);
     }
@@ -592,7 +626,7 @@ mod test {
         function foo(int $_GET) {}";
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
-        let diags = super::walk(root_node, src, &mut SegmentPool::new());
+        let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
         assert!(diags.len() == 1, "src = {}\ndiags = {:?}", src, diags);
     }
 
@@ -601,8 +635,37 @@ mod test {
         let src = "<?php var_dump($_GET);";
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
-        let diags = super::walk(root_node, src, &mut SegmentPool::new());
+        let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
         assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
+    }
+
+    #[test]
+    fn class_decl_in_types_db() {
+        let src = "<?php
+        namespace Foo\\Bar;
+
+        /**
+         * hello world
+         */
+        class Baz {
+        }
+        ";
+        let tree = parser().parse(src, None).unwrap();
+        let root_node = tree.root_node();
+        let mut types = CustomTypesDatabase::new();
+        let mut pool = SegmentPool::new();
+        let diags = super::walk(root_node, src, &mut pool, &mut types);
+        assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
+        assert_eq!(types.0.len(), 1);
+
+        let query = pool.intern_str("Foo\\Bar\\Baz");
+        let meta = types.0.get(&query).unwrap();
+        let c = match &meta.t {
+            CustomType::Class(c) => c,
+            _ => unreachable!("type should only be a class"),
+        };
+        assert_eq!(&c.name, "Baz");
+        assert!(meta.markup.contains("hello world"));
     }
 
     #[test]
@@ -737,7 +800,7 @@ mod test {
         for src in srcs {
             let tree = parser().parse(src, None).unwrap();
             let root_node = tree.root_node();
-            let diags = super::walk(root_node, src, &mut SegmentPool::new());
+            let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
             assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
     }
@@ -786,7 +849,7 @@ mod test {
         for src in srcs {
             let tree = parser().parse(src, None).unwrap();
             let root_node = tree.root_node();
-            let diags = super::walk(root_node, src, &mut SegmentPool::new());
+            let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
             assert!(!diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
     }

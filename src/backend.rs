@@ -515,13 +515,13 @@ impl LanguageServer for Backend {
                 &data.text_document.text,
             ));
         }
-        if self.init_options.get().unwrap().diagnostics.undefined {
-            diagnostics.extend(analyze::walk(
-                php_tree.root_node(),
-                &data.text_document.text,
-                &mut data_guard.ns_store,
-            ));
-        }
+
+        diagnostics.extend(analyze::walk(
+            php_tree.root_node(),
+            &data.text_document.text,
+            &mut data_guard.ns_store,
+            &mut data_guard.types,
+        ));
 
         self.client
             .publish_diagnostics(
@@ -586,13 +586,13 @@ impl LanguageServer for Backend {
                         &entry.contents,
                     ));
                 }
-                if self.init_options.get().unwrap().diagnostics.undefined {
-                    diagnostics.extend(analyze::walk(
-                        entry.php_tree.root_node(),
-                        &entry.contents,
-                        &mut data_guard.ns_store,
-                    ));
-                }
+
+                diagnostics.extend(analyze::walk(
+                    entry.php_tree.root_node(),
+                    &entry.contents,
+                    &mut data_guard.ns_store,
+                    &mut data_guard.types,
+                ));
 
                 self.client
                     .publish_diagnostics(
