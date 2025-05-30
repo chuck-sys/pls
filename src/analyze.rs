@@ -236,11 +236,14 @@ fn walk_class_declaration(
         } else {
             PhpNamespace::empty()
         };
-        types.0.insert(ns, CustomTypeMeta {
-            t: CustomType::Class(t),
-            markup,
-            src_range: decl.range(),
-        });
+        types.0.insert(
+            ns,
+            CustomTypeMeta {
+                t: CustomType::Class(t),
+                markup,
+                src_range: decl.range(),
+            },
+        );
     }
 }
 
@@ -543,7 +546,12 @@ pub fn walk_ns_use_declaration(
     }
 }
 
-pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool, types: &mut CustomTypesDatabase) -> Vec<Diagnostic> {
+pub fn walk(
+    node: Node<'_>,
+    content: &str,
+    ns_store: &mut SegmentPool,
+    types: &mut CustomTypesDatabase,
+) -> Vec<Diagnostic> {
     let mut cursor = node.walk();
     let mut diagnostics = Vec::new();
 
@@ -562,7 +570,14 @@ pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool, types: &m
             } else if kind == "namespace_use_declaration" {
                 walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind.ends_with("_declaration") || kind == "function_definition" {
-                walk_declaration(child, content, ns_store, &mut scope, types, &mut diagnostics);
+                walk_declaration(
+                    child,
+                    content,
+                    ns_store,
+                    &mut scope,
+                    types,
+                    &mut diagnostics,
+                );
             } else if kind.ends_with("_statement") {
                 walk_statement(child, content, ns_store, &mut scope, &mut diagnostics);
             }
@@ -626,7 +641,12 @@ mod test {
         function foo(int $_GET) {}";
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
-        let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
+        let diags = super::walk(
+            root_node,
+            src,
+            &mut SegmentPool::new(),
+            &mut CustomTypesDatabase::new(),
+        );
         assert!(diags.len() == 1, "src = {}\ndiags = {:?}", src, diags);
     }
 
@@ -635,7 +655,12 @@ mod test {
         let src = "<?php var_dump($_GET);";
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
-        let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
+        let diags = super::walk(
+            root_node,
+            src,
+            &mut SegmentPool::new(),
+            &mut CustomTypesDatabase::new(),
+        );
         assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
     }
 
@@ -800,7 +825,12 @@ mod test {
         for src in srcs {
             let tree = parser().parse(src, None).unwrap();
             let root_node = tree.root_node();
-            let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
+            let diags = super::walk(
+                root_node,
+                src,
+                &mut SegmentPool::new(),
+                &mut CustomTypesDatabase::new(),
+            );
             assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
     }
@@ -849,7 +879,12 @@ mod test {
         for src in srcs {
             let tree = parser().parse(src, None).unwrap();
             let root_node = tree.root_node();
-            let diags = super::walk(root_node, src, &mut SegmentPool::new(), &mut CustomTypesDatabase::new());
+            let diags = super::walk(
+                root_node,
+                src,
+                &mut SegmentPool::new(),
+                &mut CustomTypesDatabase::new(),
+            );
             assert!(!diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
     }
