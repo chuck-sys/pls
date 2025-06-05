@@ -227,24 +227,6 @@ fn walk_class_declaration(
             }
         }
     }
-
-    if t.name != "" {
-        let ns = if let Some(ns) = &scope.ns {
-            let mut ns = ns.clone();
-            ns.push(Arc::from(t.name.as_str()));
-            ns
-        } else {
-            PhpNamespace::empty()
-        };
-        types.0.insert(
-            ns,
-            CustomTypeMeta {
-                t: CustomType::Class(t),
-                markup,
-                src_range: decl.range(),
-            },
-        );
-    }
 }
 
 fn walk_function_declaration(
@@ -587,6 +569,114 @@ pub fn walk(
     diagnostics
 }
 
+/// Fills out types database.
+///
+/// We fill out the types database in this pass. We don't check for any kinds of errors; that'll be
+/// after we fill out the types database.
+///
+/// We obtain a list of type dependencies. These should be resolved by the caller.
+pub fn injest_types(
+    node: Node<'_>,
+    content: &str,
+    ns_store: &mut SegmentPool,
+    types: &mut CustomTypesDatabase,
+) -> Vec<PhpNamespace> {
+    let mut cursor = node.walk();
+    let mut dependencies = Vec::new();
+
+    let kind = node.kind();
+    if kind == "program" {
+        let mut scope = Scope::empty();
+        for child in node.children(&mut cursor) {
+            let kind = child.kind();
+            if kind == "php_tag" {
+                continue;
+            } else if kind == "namespace_definition" {
+                if let Some(name) = child.child_by_field_name("name") {
+                    let ns = ns_store.intern_str(&content[name.byte_range()]);
+                    scope.ns = Some(ns);
+                }
+            } else if kind == "namespace_use_declaration" {
+                // walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
+            } else if kind == "class_declaration" {
+                injest_class_declaration(child, content, &scope, ns_store, types, &mut dependencies);
+            } else if kind.ends_with("_declaration") || kind == "function_definition" {
+                // walk_declaration(
+                //     child,
+                //     content,
+                //     ns_store,
+                //     &mut scope,
+                //     types,
+                //     &mut diagnostics,
+                // );
+            } else if kind.ends_with("_statement") {
+                // walk_statement(child, content, ns_store, &mut scope, &mut diagnostics);
+            }
+        }
+    }
+
+    dependencies
+}
+
+fn node_markup(node: Node<'_>, content: &str) -> Option<String> {
+    if let Some(prev) = node.prev_sibling() {
+        if prev.kind() == "comment" {
+            let comment = &content[prev.byte_range()];
+            if comment.starts_with("/**") {
+                return Some(comment.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+pub fn injest_class_declaration(
+    node: Node<'_>,
+    content: &str,
+    scope: &Scope,
+    ns_store: &mut SegmentPool,
+    types: &mut CustomTypesDatabase,
+    dependencies: &mut Vec<PhpNamespace>,
+) {
+    let mut t = Class::default();
+    let mut markup = node_markup(node, content);
+
+    if let Some(name) = node.child_by_field_name("name") {
+        t.name = content[name.byte_range()].to_string();
+    }
+
+    // if let Some(body) = node.child_by_field_name("body") {
+    //     if body.kind() == "declaration_list" {
+            // let mut cursor = body.walk();
+            // for child in body.children(&mut cursor) {
+                // each declaration should have it's own scope
+                // let mut scope = scope.clone();
+                // scope.symbols.insert("self".to_string());
+                // walk_declaration(child, content, ns_store, &mut scope, types);
+            // }
+        // }
+    // }
+
+    if t.name != "" {
+        let ns = if let Some(ns) = &scope.ns {
+            let mut ns = ns.clone();
+            ns.push(Arc::from(t.name.as_str()));
+            ns
+        } else {
+            PhpNamespace::empty()
+        };
+        types.0.insert(
+            ns,
+            CustomTypeMeta {
+                t: CustomType::Class(t),
+                markup,
+                src_range: node.range(),
+            },
+        );
+    }
+}
+
 #[cfg(test)]
 mod test {
     use tree_sitter::Parser;
@@ -679,8 +769,8 @@ mod test {
         let root_node = tree.root_node();
         let mut types = CustomTypesDatabase::new();
         let mut pool = SegmentPool::new();
-        let diags = super::walk(root_node, src, &mut pool, &mut types);
-        assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
+        let deps = super::injest_types(root_node, src, &mut pool, &mut types);
+        assert!(deps.is_empty(), "src = {}\ndeps = {:?}", src, deps);
         assert_eq!(types.0.len(), 1);
 
         let query = pool.intern_str("Foo\\Bar\\Baz");
@@ -690,7 +780,7 @@ mod test {
             _ => unreachable!("type should only be a class"),
         };
         assert_eq!(&c.name, "Baz");
-        assert!(meta.markup.contains("hello world"));
+        assert!(meta.markup.as_ref().unwrap().contains("hello world"));
     }
 
     #[test]

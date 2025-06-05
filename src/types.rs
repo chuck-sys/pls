@@ -146,7 +146,7 @@ pub enum CustomType {
 #[derive(Clone, Debug)]
 pub struct CustomTypeMeta {
     pub t: CustomType,
-    pub markup: String,
+    pub markup: Option<String>,
     pub src_range: tree_sitter::Range,
 }
 
