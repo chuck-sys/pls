@@ -312,7 +312,7 @@ fn walk_expression(
 ) {
     let kind = expression.kind();
 
-    if kind == "assignment_expression" {
+    if kind.ends_with("assignment_expression") {
         walk_assignment_expression(expression, content, ns_store, scope, diagnostics)
     } else if kind == "parenthesized_expression" {
         if let Some(expr) = expression.child(1) {
@@ -820,6 +820,9 @@ mod test {
                 $sum += $item;
                 $item = 0;
             }",
+            "<?php
+            $a = 3;
+            $b = &$a;",
         ];
 
         for src in srcs {
