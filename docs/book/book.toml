@@ -1,8 +1,8 @@
 [book]
-authors = ["The phplsp author(s)"]
+authors = ["The pls author(s)"]
 language = "en"
 src = "src"
-title = "phplsp"
+title = "pls"
 
 [output.html]
-site-url = "/phplsp/"
+site-url = "/pls/"

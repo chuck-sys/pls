@@ -1,5 +1,5 @@
 [package]
-name = "phplsp"
+name = "pls"
 version = "0.1.0"
 edition = "2021"
 description = "A very bad implementation of a PHP Language Server, in Rust of course."
