@@ -7,7 +7,9 @@ use std::sync::Arc;
 use crate::compat::to_range;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::scope::{Scope, SUPERGLOBALS};
-use crate::types::{Class, CustomType, CustomTypeMeta, CustomTypesDatabase};
+use crate::types::{
+    Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Type, Visibility,
+};
 
 fn function_parameters(
     params: Node<'_>,
@@ -599,7 +601,14 @@ pub fn injest_types(
             } else if kind == "namespace_use_declaration" {
                 // walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind == "class_declaration" {
-                injest_class_declaration(child, content, &scope, ns_store, types, &mut dependencies);
+                injest_class_declaration(
+                    child,
+                    content,
+                    &scope,
+                    ns_store,
+                    types,
+                    &mut dependencies,
+                );
             } else if kind.ends_with("_declaration") || kind == "function_definition" {
                 // walk_declaration(
                 //     child,
@@ -646,17 +655,19 @@ pub fn injest_class_declaration(
         t.name = content[name.byte_range()].to_string();
     }
 
-    // if let Some(body) = node.child_by_field_name("body") {
-    //     if body.kind() == "declaration_list" {
-            // let mut cursor = body.walk();
-            // for child in body.children(&mut cursor) {
-                // each declaration should have it's own scope
-                // let mut scope = scope.clone();
-                // scope.symbols.insert("self".to_string());
-                // walk_declaration(child, content, ns_store, &mut scope, types);
-            // }
-        // }
-    // }
+    if let Some(body) = node.child_by_field_name("body") {
+        if body.kind() == "declaration_list" {
+            let mut cursor = body.walk();
+            for child in body.children(&mut cursor) {
+                if child.kind() == "property_declaration" {
+                } else if child.kind() == "method_declaration" {
+                    if let Ok(method) = Method::from_node(child, content) {
+                        t.methods.insert(method.name.clone(), method);
+                    }
+                }
+            }
+        }
+    }
 
     if t.name != "" {
         let ns = if let Some(ns) = &scope.ns {
@@ -684,7 +695,7 @@ mod test {
 
     use crate::php_namespace::SegmentPool;
     use crate::scope::Scope;
-    use crate::types::{CustomType, CustomTypesDatabase};
+    use crate::types::{CustomType, CustomTypesDatabase, Scalar, Type, Visibility};
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -763,6 +774,7 @@ mod test {
          * hello world
          */
         class Baz {
+            public static function bar(): string {}
         }
         ";
         let tree = parser().parse(src, None).unwrap();
@@ -781,6 +793,12 @@ mod test {
         };
         assert_eq!(&c.name, "Baz");
         assert!(meta.markup.as_ref().unwrap().contains("hello world"));
+        let m = c.methods.get("bar").unwrap();
+        assert_eq!(&m.name, "bar");
+        assert_eq!(m.return_type, Type::Scalar(Scalar::String));
+        assert_eq!(m.r#abstract, false);
+        assert_eq!(m.r#static, true);
+        assert_eq!(m.visibility, Visibility::Public);
     }
 
     #[test]

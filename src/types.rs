@@ -1,9 +1,15 @@
-use tower_lsp_server::lsp_types::Uri;
+use tree_sitter::Node;
 
 use std::boxed::Box;
 use std::collections::HashMap;
 
 use crate::php_namespace::PhpNamespace;
+
+pub trait FromNode {
+    fn from_node(n: Node<'_>, content: &str) -> Result<Self, TypeError>
+    where
+        Self: std::marker::Sized;
+}
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Scalar {
@@ -26,6 +32,12 @@ pub struct Union(Vec<Type>);
 pub struct Or(Vec<Type>);
 #[derive(Clone, Debug)]
 pub struct Nullable(Box<Type>);
+
+#[derive(Clone, Debug)]
+pub enum TypeError {
+    NodeKindMismatch(&'static str, &'static str),
+    NoProblems,
+}
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Type {
@@ -55,7 +67,7 @@ pub enum Visibility {
 pub struct Argument {
     pub name: String,
 
-    pub r#type: Type,
+    pub t: Type,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -71,6 +83,15 @@ pub struct Method {
 }
 
 #[derive(PartialEq, Clone, Debug)]
+pub struct Property {
+    pub name: String,
+    pub t: Type,
+
+    pub visibility: Visibility,
+    pub r#static: bool,
+}
+
+#[derive(PartialEq, Clone, Debug)]
 pub struct Function {
     pub name: String,
 
@@ -83,7 +104,7 @@ pub struct Trait {
     pub name: String,
 
     pub constants: HashMap<String, Type>,
-    pub properties: HashMap<String, Type>,
+    pub properties: HashMap<String, Property>,
     pub methods: HashMap<String, Method>,
 }
 
@@ -92,7 +113,7 @@ pub struct Interface {
     pub name: String,
 
     pub constants: HashMap<String, Type>,
-    pub properties: HashMap<String, Type>,
+    pub properties: HashMap<String, Property>,
     pub methods: HashMap<String, Method>,
 
     pub parent_interfaces: Vec<PhpNamespace>,
@@ -116,7 +137,7 @@ pub struct Class {
     pub name: String,
 
     pub constants: HashMap<String, Type>,
-    pub properties: HashMap<String, Type>,
+    pub properties: HashMap<String, Property>,
     pub methods: HashMap<String, Method>,
 
     pub parent_classes: Vec<PhpNamespace>,
@@ -214,6 +235,94 @@ impl Array {
             key: Type::Scalar(Scalar::Integer),
             value: t,
         }
+    }
+}
+
+impl FromNode for Visibility {
+    fn from_node(n: Node<'_>, content: &str) -> Result<Self, TypeError> {
+        let text = &content[n.byte_range()];
+        if text == "protected" {
+            Ok(Self::Protected)
+        } else if text == "private" {
+            Ok(Self::Private)
+        } else {
+            Ok(Self::Public)
+        }
+    }
+}
+
+impl FromNode for Method {
+    fn from_node(n: Node<'_>, content: &str) -> Result<Self, TypeError> {
+        let mut visibility = Visibility::Public;
+        let mut r#static = false;
+        let mut r#abstract = false;
+
+        let mut cursor = n.walk();
+        for child in n.children(&mut cursor) {
+            if child.kind() == "visibility_modifier" {
+                if let Ok(v) = Visibility::from_node(child, content) {
+                    visibility = v;
+                }
+            } else if child.kind() == "static_modifier" {
+                r#static = true;
+            } else if child.kind() == "abstract_modifier" {
+                r#abstract = true;
+            }
+        }
+
+        let name = n
+            .child_by_field_name("name")
+            .map(|name| content[name.byte_range()].to_string());
+        let return_type = n
+            .child_by_field_name("return_type")
+            .and_then(|t| Type::from_node(t, content).ok());
+
+        match (name, return_type) {
+            (Some(name), Some(return_type)) => Ok(Method {
+                name,
+                arguments: Vec::new(),
+                return_type,
+                visibility,
+                r#static,
+                r#abstract,
+            }),
+            (Some(name), None) => Ok(Method {
+                name,
+                arguments: Vec::new(),
+                return_type: Type::Void,
+                visibility,
+                r#static,
+                r#abstract,
+            }),
+            _ => Err(TypeError::NoProblems),
+        }
+    }
+}
+
+impl FromNode for Type {
+    fn from_node(n: Node<'_>, content: &str) -> Result<Self, TypeError> {
+        if n.kind() == "primitive_type" {
+            let t = &content[n.byte_range()];
+            if t == "int" {
+                return Ok(Type::Scalar(Scalar::Integer));
+            } else if t == "string" {
+                return Ok(Type::Scalar(Scalar::String));
+            } else if t == "bool" {
+                return Ok(Type::Scalar(Scalar::Boolean));
+            } else if t == "float" {
+                return Ok(Type::Scalar(Scalar::Float));
+            } else if t == "void" {
+                return Ok(Type::Void);
+            } else if t == "false" {
+                return Ok(Type::Scalar(Scalar::BooleanLiteral(false)));
+            } else if t == "true" {
+                return Ok(Type::Scalar(Scalar::BooleanLiteral(true)));
+            } else if t == "null" {
+                return Ok(Type::Scalar(Scalar::Null));
+            }
+        }
+
+        return Err(TypeError::NoProblems);
     }
 }
 
