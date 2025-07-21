@@ -636,6 +636,28 @@ fn node_markup(node: Node<'_>, content: &str) -> Option<String> {
     None
 }
 
+pub fn clause_fqn_names(node: Node<'_>, content: &str, scope: &Scope) -> Vec<PhpNamespace> {
+    let mut cursor = node.walk();
+    let mut names = Vec::new();
+
+    for child in node.children(&mut cursor) {
+        if child.kind() != "name" {
+            continue;
+        }
+
+        let name = &content[child.byte_range()];
+        if let Some(ns) = scope.ns_aliases.get(name) {
+            names.push(ns.clone());
+        } else {
+            let mut ns = scope.ns.clone().unwrap_or(PhpNamespace::empty());
+            ns.0.push(Arc::from(name));
+            names.push(ns);
+        }
+    }
+
+    names
+}
+
 pub fn injest_class_declaration(
     node: Node<'_>,
     content: &str,
@@ -666,6 +688,24 @@ pub fn injest_class_declaration(
                 }
             }
         }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !child.kind().ends_with("_clause") {
+            continue;
+        }
+
+        let names = clause_fqn_names(child, content, scope);
+        if child.kind() == "base_clause" {
+            t.parent_classes.extend(names.clone());
+        } else if child.kind() == "class_interface_clause" {
+            t.implemented_interfaces.extend(names.clone());
+        } else {
+            panic!("unsupported `_clause` = `{}`", child.kind());
+        }
+
+        dependencies.extend(names);
     }
 
     if t.name != "" {
