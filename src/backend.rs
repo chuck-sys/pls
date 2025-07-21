@@ -520,7 +520,6 @@ impl LanguageServer for Backend {
             php_tree.root_node(),
             &data.text_document.text,
             &mut data_guard.ns_store,
-            &mut data_guard.types,
         ));
 
         self.client
@@ -591,7 +590,6 @@ impl LanguageServer for Backend {
                     entry.php_tree.root_node(),
                     &entry.contents,
                     &mut data_guard.ns_store,
-                    &mut data_guard.types,
                 ));
 
                 self.client

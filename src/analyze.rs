@@ -8,7 +8,7 @@ use crate::compat::to_range;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::scope::{Scope, SUPERGLOBALS};
 use crate::types::{
-    Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Type, Visibility,
+    Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Type, Visibility, Property,
 };
 
 fn function_parameters(
@@ -198,17 +198,16 @@ fn walk_class_declaration(
     content: &str,
     ns_store: &mut SegmentPool,
     scope: &mut Scope,
-    types: &mut CustomTypesDatabase,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut t = Class::default();
-    let mut markup = String::new();
+    let mut markup = None;
 
     if let Some(prev) = decl.prev_sibling() {
         if prev.kind() == "comment" {
             let comment = &content[prev.byte_range()];
             if comment.starts_with("/**") {
-                markup = comment.to_string();
+                markup = Some(comment.to_string());
             }
         }
     }
@@ -225,7 +224,7 @@ fn walk_class_declaration(
                 // each declaration should have it's own scope
                 let mut scope = scope.clone();
                 scope.symbols.insert("self".to_string());
-                walk_declaration(child, content, ns_store, &mut scope, types, diagnostics);
+                walk_declaration(child, content, ns_store, &mut scope, diagnostics);
             }
         }
     }
@@ -273,13 +272,12 @@ fn walk_declaration(
     content: &str,
     ns_store: &mut SegmentPool,
     scope: &mut Scope,
-    types: &mut CustomTypesDatabase,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let kind = decl.kind();
 
     if kind == "class_declaration" {
-        walk_class_declaration(decl, content, ns_store, scope, types, diagnostics)
+        walk_class_declaration(decl, content, ns_store, scope, diagnostics)
     } else if kind == "function_definition" || kind == "function_static_declaration" {
         walk_function_declaration(decl, content, ns_store, scope, diagnostics)
     } else if kind == "method_declaration" {
@@ -534,7 +532,6 @@ pub fn walk(
     node: Node<'_>,
     content: &str,
     ns_store: &mut SegmentPool,
-    types: &mut CustomTypesDatabase,
 ) -> Vec<Diagnostic> {
     let mut cursor = node.walk();
     let mut diagnostics = Vec::new();
@@ -559,7 +556,6 @@ pub fn walk(
                     content,
                     ns_store,
                     &mut scope,
-                    types,
                     &mut diagnostics,
                 );
             } else if kind.ends_with("_statement") {
@@ -660,6 +656,9 @@ pub fn injest_class_declaration(
             let mut cursor = body.walk();
             for child in body.children(&mut cursor) {
                 if child.kind() == "property_declaration" {
+                    if let Ok(property) = Property::from_node(child, content) {
+                        t.properties.insert(property.name.clone(), property);
+                    }
                 } else if child.kind() == "method_declaration" {
                     if let Ok(method) = Method::from_node(child, content) {
                         t.methods.insert(method.name.clone(), method);
@@ -695,7 +694,7 @@ mod test {
 
     use crate::php_namespace::SegmentPool;
     use crate::scope::Scope;
-    use crate::types::{CustomType, CustomTypesDatabase, Scalar, Type, Visibility};
+    use crate::types::{CustomType, CustomTypesDatabase, Scalar, Type, Visibility, Array, Nullable};
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -716,7 +715,7 @@ mod test {
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
         let mut pool = SegmentPool::new();
-        let diags = super::walk(root_node, src, &mut pool, &mut CustomTypesDatabase::new());
+        let diags = super::walk(root_node, src, &mut pool);
         assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         assert_eq!(pool.0.len(), 4, "pool = {:?}", pool.0);
     }
@@ -731,7 +730,7 @@ mod test {
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
         let mut pool = SegmentPool::new();
-        let diags = super::walk(root_node, src, &mut pool, &mut CustomTypesDatabase::new());
+        let diags = super::walk(root_node, src, &mut pool);
         assert_eq!(diags.len(), 1, "src = {}\ndiags = {:?}", src, diags);
         assert_eq!(pool.0.len(), 4, "pool = {:?}", pool.0);
     }
@@ -746,7 +745,6 @@ mod test {
             root_node,
             src,
             &mut SegmentPool::new(),
-            &mut CustomTypesDatabase::new(),
         );
         assert!(diags.len() == 1, "src = {}\ndiags = {:?}", src, diags);
     }
@@ -760,7 +758,6 @@ mod test {
             root_node,
             src,
             &mut SegmentPool::new(),
-            &mut CustomTypesDatabase::new(),
         );
         assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
     }
@@ -774,6 +771,7 @@ mod test {
          * hello world
          */
         class Baz {
+            protected static ?array $someArray = null;
             public static function bar(): string {}
         }
         ";
@@ -799,6 +797,26 @@ mod test {
         assert_eq!(m.r#abstract, false);
         assert_eq!(m.r#static, true);
         assert_eq!(m.visibility, Visibility::Public);
+        let p = c.properties.get("$someArray").unwrap();
+        assert_eq!(p.t, Type::Nullable(Nullable(Box::new(Type::Array))));
+    }
+
+    #[test]
+    fn class_decl_extends_with_ns() {
+        let src = "<?php
+        namespace Foo\\Bar;
+
+        class Baz extends Ta {
+        }
+        ";
+        let tree = parser().parse(src, None).unwrap();
+        let root_node = tree.root_node();
+        let mut types = CustomTypesDatabase::new();
+        let mut pool = SegmentPool::new();
+        let deps = super::injest_types(root_node, src, &mut pool, &mut types);
+
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0], pool.intern_str("Foo\\Bar\\Ta"));
     }
 
     #[test]
@@ -940,7 +958,6 @@ mod test {
                 root_node,
                 src,
                 &mut SegmentPool::new(),
-                &mut CustomTypesDatabase::new(),
             );
             assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
@@ -994,7 +1011,6 @@ mod test {
                 root_node,
                 src,
                 &mut SegmentPool::new(),
-                &mut CustomTypesDatabase::new(),
             );
             assert!(!diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }

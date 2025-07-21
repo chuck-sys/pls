@@ -27,16 +27,19 @@ pub enum Scalar {
 }
 
 #[derive(Clone, Debug)]
-pub struct Union(Vec<Type>);
+pub struct Union(pub Vec<Type>);
 #[derive(Clone, Debug)]
-pub struct Or(Vec<Type>);
+pub struct Or(pub Vec<Type>);
 #[derive(Clone, Debug)]
-pub struct Nullable(Box<Type>);
+pub struct Nullable(pub Box<Type>);
 
 #[derive(Clone, Debug)]
 pub enum TypeError {
     NodeKindMismatch(&'static str, &'static str),
     NoProblems,
+    NoName,
+    ExpectedType,
+    UnsupportedType(String),
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -47,6 +50,7 @@ pub enum Type {
     Object,
     Callable,
 
+    Any,
     Resource,
     Never,
     Void,
@@ -251,6 +255,46 @@ impl FromNode for Visibility {
     }
 }
 
+impl FromNode for Property {
+    fn from_node(n: Node<'_>, content: &str) -> Result<Self, TypeError> {
+        let mut name = None;
+        let mut visibility = Visibility::Public;
+        let mut r#static = false;
+
+        let mut cursor = n.walk();
+        for child in n.children(&mut cursor) {
+            if child.kind() == "visibility_modifier" {
+                if let Ok(v) = Visibility::from_node(child, content) {
+                    visibility = v;
+                }
+            } else if child.kind() == "static_modifier" {
+                r#static = true;
+            } else if child.kind() == "property_element" {
+                name = child
+                    .child_by_field_name("name")
+                    .map(|name| content[name.byte_range()].to_string());
+            }
+        }
+
+        let t = n
+            .child_by_field_name("type")
+            .map(|t| Type::from_node(t, content).unwrap())
+            .unwrap();
+            // .unwrap_or(Type::Any);
+
+        if let Some(name) = name {
+            Ok(Self {
+                name,
+                t,
+                visibility,
+                r#static,
+            })
+        } else {
+            Err(TypeError::NoName)
+        }
+    }
+}
+
 impl FromNode for Method {
     fn from_node(n: Node<'_>, content: &str) -> Result<Self, TypeError> {
         let mut visibility = Visibility::Public;
@@ -294,7 +338,7 @@ impl FromNode for Method {
                 r#static,
                 r#abstract,
             }),
-            _ => Err(TypeError::NoProblems),
+            _ => Err(TypeError::NoName),
         }
     }
 }
@@ -304,25 +348,33 @@ impl FromNode for Type {
         if n.kind() == "primitive_type" {
             let t = &content[n.byte_range()];
             if t == "int" {
-                return Ok(Type::Scalar(Scalar::Integer));
+                Ok(Type::Scalar(Scalar::Integer))
             } else if t == "string" {
-                return Ok(Type::Scalar(Scalar::String));
+                Ok(Type::Scalar(Scalar::String))
             } else if t == "bool" {
-                return Ok(Type::Scalar(Scalar::Boolean));
+                Ok(Type::Scalar(Scalar::Boolean))
             } else if t == "float" {
-                return Ok(Type::Scalar(Scalar::Float));
+                Ok(Type::Scalar(Scalar::Float))
             } else if t == "void" {
-                return Ok(Type::Void);
+                Ok(Type::Void)
             } else if t == "false" {
-                return Ok(Type::Scalar(Scalar::BooleanLiteral(false)));
+                Ok(Type::Scalar(Scalar::BooleanLiteral(false)))
             } else if t == "true" {
-                return Ok(Type::Scalar(Scalar::BooleanLiteral(true)));
+                Ok(Type::Scalar(Scalar::BooleanLiteral(true)))
             } else if t == "null" {
-                return Ok(Type::Scalar(Scalar::Null));
+                Ok(Type::Scalar(Scalar::Null))
+            } else if t == "array" {
+                Ok(Type::Array)
+            } else {
+                Err(TypeError::UnsupportedType(t.to_owned()))
             }
+        } else if n.kind() == "optional_type" {
+            let inner_type = Self::from_node(n.child(1).ok_or(TypeError::ExpectedType)?, content)?;
+            Ok(Type::Nullable(Nullable(Box::new(inner_type))))
+        } else {
+            dbg!("{:?}", n.to_sexp());
+            Err(TypeError::UnsupportedType(n.kind().to_owned()))
         }
-
-        return Err(TypeError::NoProblems);
     }
 }
 
