@@ -280,7 +280,7 @@ impl FromNode for Property {
             .child_by_field_name("type")
             .map(|t| Type::from_node(t, content).unwrap())
             .unwrap();
-            // .unwrap_or(Type::Any);
+        // .unwrap_or(Type::Any);
 
         if let Some(name) = name {
             Ok(Self {

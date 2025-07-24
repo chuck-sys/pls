@@ -8,7 +8,8 @@ use crate::compat::to_range;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::scope::{Scope, SUPERGLOBALS};
 use crate::types::{
-    Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Type, Visibility, Property,
+    Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Property, Type,
+    Visibility,
 };
 
 fn function_parameters(
@@ -528,11 +529,7 @@ pub fn walk_ns_use_declaration(
     }
 }
 
-pub fn walk(
-    node: Node<'_>,
-    content: &str,
-    ns_store: &mut SegmentPool,
-) -> Vec<Diagnostic> {
+pub fn walk(node: Node<'_>, content: &str, ns_store: &mut SegmentPool) -> Vec<Diagnostic> {
     let mut cursor = node.walk();
     let mut diagnostics = Vec::new();
 
@@ -551,13 +548,7 @@ pub fn walk(
             } else if kind == "namespace_use_declaration" {
                 walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind.ends_with("_declaration") || kind == "function_definition" {
-                walk_declaration(
-                    child,
-                    content,
-                    ns_store,
-                    &mut scope,
-                    &mut diagnostics,
-                );
+                walk_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
             } else if kind.ends_with("_statement") {
                 walk_statement(child, content, ns_store, &mut scope, &mut diagnostics);
             }
@@ -595,7 +586,8 @@ pub fn injest_types(
                     scope.ns = Some(ns);
                 }
             } else if kind == "namespace_use_declaration" {
-                // walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut diagnostics);
+                // XXX create new fn for mutating scope without diagnostics
+                walk_ns_use_declaration(child, content, ns_store, &mut scope, &mut Vec::new());
             } else if kind == "class_declaration" {
                 injest_class_declaration(
                     child,
@@ -636,22 +628,50 @@ fn node_markup(node: Node<'_>, content: &str) -> Option<String> {
     None
 }
 
-pub fn clause_fqn_names(node: Node<'_>, content: &str, scope: &Scope) -> Vec<PhpNamespace> {
+/// Get all children that have `node.kind() == "name"`.
+///
+/// Return a list of FQN.
+pub fn clause_fqn_names(
+    node: Node<'_>,
+    content: &str,
+    scope: &Scope,
+    ns_store: &mut SegmentPool,
+) -> Vec<PhpNamespace> {
     let mut cursor = node.walk();
     let mut names = Vec::new();
 
     for child in node.children(&mut cursor) {
-        if child.kind() != "name" {
+        if !child.kind().ends_with("name") {
             continue;
         }
 
         let name = &content[child.byte_range()];
-        if let Some(ns) = scope.ns_aliases.get(name) {
-            names.push(ns.clone());
-        } else {
-            let mut ns = scope.ns.clone().unwrap_or(PhpNamespace::empty());
-            ns.0.push(Arc::from(name));
-            names.push(ns);
+        if child.kind() == "name" {
+            if let Some(ns) = scope.ns_aliases.get(name) {
+                names.push(ns.clone());
+            } else {
+                let mut ns = scope.ns.clone().unwrap_or(PhpNamespace::empty());
+                ns.0.push(Arc::from(name));
+                names.push(ns);
+            }
+        } else if child.kind() == "qualified_name" {
+            if name.starts_with("\\") {
+                names.push(ns_store.intern_str(name));
+            } else {
+                let relative_ns = ns_store.intern_str(name);
+                if let Some(first_segment) = relative_ns.0.get(0) {
+                    if let Some(ns) = scope.ns_aliases.get(first_segment.as_ref()) {
+                        let mut ns = ns.clone();
+                        ns.pop();
+                        ns.extend(relative_ns.0.into_iter());
+                        names.push(ns);
+                    } else {
+                        let mut ns = scope.ns.clone().unwrap_or(PhpNamespace::empty());
+                        ns.extend(relative_ns.0.into_iter());
+                        names.push(ns);
+                    }
+                }
+            }
         }
     }
 
@@ -667,7 +687,7 @@ pub fn injest_class_declaration(
     dependencies: &mut Vec<PhpNamespace>,
 ) {
     let mut t = Class::default();
-    let mut markup = node_markup(node, content);
+    let markup = node_markup(node, content);
 
     if let Some(name) = node.child_by_field_name("name") {
         t.name = content[name.byte_range()].to_string();
@@ -685,6 +705,10 @@ pub fn injest_class_declaration(
                     if let Ok(method) = Method::from_node(child, content) {
                         t.methods.insert(method.name.clone(), method);
                     }
+                } else if child.kind() == "use_declaration" {
+                    let trait_names = clause_fqn_names(child, content, scope, ns_store);
+                    t.traits_used.extend(trait_names.clone());
+                    dependencies.extend(trait_names);
                 }
             }
         }
@@ -696,7 +720,7 @@ pub fn injest_class_declaration(
             continue;
         }
 
-        let names = clause_fqn_names(child, content, scope);
+        let names = clause_fqn_names(child, content, scope, ns_store);
         if child.kind() == "base_clause" {
             t.parent_classes.extend(names.clone());
         } else if child.kind() == "class_interface_clause" {
@@ -734,7 +758,9 @@ mod test {
 
     use crate::php_namespace::SegmentPool;
     use crate::scope::Scope;
-    use crate::types::{CustomType, CustomTypesDatabase, Scalar, Type, Visibility, Array, Nullable};
+    use crate::types::{
+        Array, CustomType, CustomTypesDatabase, Nullable, Scalar, Type, Visibility,
+    };
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
@@ -781,11 +807,7 @@ mod test {
         function foo(int $_GET) {}";
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
-        let diags = super::walk(
-            root_node,
-            src,
-            &mut SegmentPool::new(),
-        );
+        let diags = super::walk(root_node, src, &mut SegmentPool::new());
         assert!(diags.len() == 1, "src = {}\ndiags = {:?}", src, diags);
     }
 
@@ -794,11 +816,7 @@ mod test {
         let src = "<?php var_dump($_GET);";
         let tree = parser().parse(src, None).unwrap();
         let root_node = tree.root_node();
-        let diags = super::walk(
-            root_node,
-            src,
-            &mut SegmentPool::new(),
-        );
+        let diags = super::walk(root_node, src, &mut SegmentPool::new());
         assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
     }
 
@@ -846,7 +864,12 @@ mod test {
         let src = "<?php
         namespace Foo\\Bar;
 
-        class Baz extends Ta {
+        use Foo\\Pa;
+        use Foo\\Sa\\Trait1;
+        use Foo\\Sa\\Trait2;
+
+        class Baz extends Ta, \\Foo\\Da {
+            use Trait1, Pa\\Trait2;
         }
         ";
         let tree = parser().parse(src, None).unwrap();
@@ -855,8 +878,28 @@ mod test {
         let mut pool = SegmentPool::new();
         let deps = super::injest_types(root_node, src, &mut pool, &mut types);
 
-        assert_eq!(deps.len(), 1);
-        assert_eq!(deps[0], pool.intern_str("Foo\\Bar\\Ta"));
+        let baz = types.0.get(&pool.intern_str("Foo\\Bar\\Baz")).unwrap();
+        let baz_t = match &baz.t {
+            CustomType::Class(c) => c,
+            _ => unreachable!(),
+        };
+
+        assert!(baz_t
+            .parent_classes
+            .contains(&pool.intern_str("Foo\\Bar\\Ta")));
+        assert!(baz_t.parent_classes.contains(&pool.intern_str("Foo\\Da")));
+        assert!(baz_t
+            .traits_used
+            .contains(&pool.intern_str("Foo\\Sa\\Trait1")));
+        assert!(baz_t
+            .traits_used
+            .contains(&pool.intern_str("Foo\\Pa\\Trait2")));
+
+        assert_eq!(deps.len(), 4);
+        assert!(deps.contains(&pool.intern_str("Foo\\Bar\\Ta")));
+        assert!(deps.contains(&pool.intern_str("Foo\\Da")));
+        assert!(deps.contains(&pool.intern_str("Foo\\Sa\\Trait1")));
+        assert!(deps.contains(&pool.intern_str("Foo\\Pa\\Trait2")));
     }
 
     #[test]
@@ -994,11 +1037,7 @@ mod test {
         for src in srcs {
             let tree = parser().parse(src, None).unwrap();
             let root_node = tree.root_node();
-            let diags = super::walk(
-                root_node,
-                src,
-                &mut SegmentPool::new(),
-            );
+            let diags = super::walk(root_node, src, &mut SegmentPool::new());
             assert!(diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
     }
@@ -1047,11 +1086,7 @@ mod test {
         for src in srcs {
             let tree = parser().parse(src, None).unwrap();
             let root_node = tree.root_node();
-            let diags = super::walk(
-                root_node,
-                src,
-                &mut SegmentPool::new(),
-            );
+            let diags = super::walk(root_node, src, &mut SegmentPool::new());
             assert!(!diags.is_empty(), "src = {}\ndiags = {:?}", src, diags);
         }
     }
