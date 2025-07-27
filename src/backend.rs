@@ -1,3 +1,4 @@
+use tokio::task::JoinHandle;
 use tower_lsp_server::jsonrpc::{
     Error as LspError, ErrorCode as LspErrorCode, Result as LspResult,
 };
@@ -8,7 +9,8 @@ use tree_sitter::{Node, Parser};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use tokio::sync::mpsc;
 
 use serde::Deserialize;
 use serde_json::json;
@@ -19,7 +21,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::analyze;
 use crate::code_action::{changes_phpecho, CodeActionValue, PHPECHO_TITLE};
@@ -28,6 +30,7 @@ use crate::composer::{get_composer_files, Autoload, ResolutionError};
 use crate::diagnostics;
 use crate::diagnostics::DiagnosticsOptions;
 use crate::file::{parse, FileData};
+use crate::messages::AnalysisThreadMessage;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::stubs;
 use crate::stubs::FileMapping;
@@ -234,14 +237,14 @@ fn document_symbols(root_node: &Node, file_contents: &str) -> Vec<DocumentSymbol
     ret
 }
 
-struct BackendData {
-    php_parser: Parser,
-    phpdoc_parser: Parser,
+pub struct BackendData {
+    pub php_parser: Parser,
+    pub phpdoc_parser: Parser,
 
-    file_trees: HashMap<Uri, FileData>,
-    ns_store: SegmentPool,
-    ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
-    types: CustomTypesDatabase,
+    pub file_trees: HashMap<Uri, FileData>,
+    pub ns_store: SegmentPool,
+    pub ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
+    pub types: CustomTypesDatabase,
 }
 
 impl BackendData {
@@ -269,7 +272,10 @@ pub struct Backend {
     init_options: OnceLock<InitializeOptions>,
     builtins_mapping: FileMapping,
 
-    data: RwLock<BackendData>,
+    analysis_thread_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    sender_to_analysis: mpsc::Sender<AnalysisThreadMessage>,
+
+    data: Arc<RwLock<BackendData>>,
 }
 
 impl Backend {
@@ -288,13 +294,23 @@ impl Backend {
             .expect("error loading PHPDOC grammar");
 
         let builtins_mapping = FileMapping::from_filename(stubs_filename, &mut php_parser)?;
+        let data = Arc::new(RwLock::new(BackendData::new(php_parser, phpdoc_parser)));
+        let cloned_data = Arc::clone(&data);
+        let (tx, rx) = mpsc::channel(32);
+
+        let analysis_thread_handle = Arc::new(Mutex::new(Some(tokio::spawn(async move {
+            analyze::main_thread(rx, cloned_data);
+        }))));
 
         Ok(Self {
             client,
             builtins_mapping,
             init_options: OnceLock::new(),
 
-            data: RwLock::new(BackendData::new(php_parser, phpdoc_parser)),
+            analysis_thread_handle,
+            sender_to_analysis: tx,
+
+            data,
         })
     }
 
@@ -497,6 +513,17 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::LOG, "server shutdown")
             .await;
+
+        if let Err(e) = self.sender_to_analysis.send(AnalysisThreadMessage::Shutdown).await {
+            self.client
+                .log_message(MessageType::ERROR, format!("analysis thread already shutdown with message: {}", e))
+                .await;
+        }
+        let mut mtx = self.analysis_thread_handle.lock().await;
+        if let Some(handle) = mtx.take() {
+            let _ = handle.await;
+        }
+
         Ok(())
     }
 

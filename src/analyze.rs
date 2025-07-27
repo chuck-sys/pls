@@ -2,8 +2,13 @@ use tower_lsp_server::lsp_types::*;
 
 use tree_sitter::Node;
 
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::RwLock;
+
 use std::sync::Arc;
 
+use crate::backend::BackendData;
+use crate::messages::AnalysisThreadMessage;
 use crate::compat::to_range;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 use crate::scope::{Scope, SUPERGLOBALS};
@@ -11,6 +16,18 @@ use crate::types::{
     Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Property, Type,
     Visibility,
 };
+
+pub async fn main_thread(
+    mut rx: Receiver<AnalysisThreadMessage>,
+    data: Arc<RwLock<BackendData>>,
+) {
+    while let Some(msg) = rx.recv().await {
+        use AnalysisThreadMessage::*;
+        match msg {
+            Shutdown => break
+        }
+    }
+}
 
 fn function_parameters(
     params: Node<'_>,

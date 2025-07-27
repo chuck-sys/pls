@@ -9,6 +9,7 @@ mod compat;
 mod composer;
 mod diagnostics;
 mod file;
+mod messages;
 mod php_namespace;
 mod scope;
 mod stubs;
