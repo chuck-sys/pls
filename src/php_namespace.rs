@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::composer::ResolutionError;
+
 /// Space-saving way of storing php namespaces.
 #[derive(Debug, Clone)]
 pub struct SegmentPool(pub HashSet<Arc<str>>);
@@ -130,6 +132,33 @@ impl std::fmt::Display for PhpNamespace {
         let joined = self.0.join("\\");
         write!(f, "\\{}", joined)
     }
+}
+
+/// Resolves a namespace into a `PathBuf`.
+///
+/// Can guarantee that at the time of calling, the resolved path exists. Which isn't saying
+/// much but should be worth something, right?
+///
+/// The question of what the path represents remains an exercise to the reader. It could
+/// represent either a file or a directory, and the user would have to check.
+pub fn resolve_ns(
+    ns: &PhpNamespace,
+    ns_to_dir: &HashMap<PhpNamespace, Vec<PathBuf>>,
+) -> Result<PathBuf, ResolutionError> {
+    for (original_ns, dirs) in ns_to_dir.iter() {
+        if !ns.starts_with(original_ns) {
+            continue;
+        }
+
+        for dir in dirs.iter() {
+            let pathbuf = original_ns.as_pathbuf(dir, &ns);
+            if pathbuf.exists() {
+                return Ok(pathbuf);
+            }
+        }
+    }
+
+    Err(ResolutionError::NamespaceNotFound(ns.clone()))
 }
 
 #[cfg(test)]

@@ -9,8 +9,8 @@ use tree_sitter::{Node, Parser};
 use tree_sitter_php::language_php;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
-use tokio::sync::{Mutex, RwLock};
 use tokio::sync::mpsc;
+use tokio::sync::{Mutex, RwLock};
 
 use serde::Deserialize;
 use serde_json::json;
@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use crate::analyze;
 use crate::code_action::{changes_phpecho, CodeActionValue, PHPECHO_TITLE};
 use crate::compat::*;
-use crate::composer::{get_composer_files, Autoload, ResolutionError};
+use crate::composer::{get_composer_files, Autoload};
 use crate::diagnostics;
 use crate::diagnostics::DiagnosticsOptions;
 use crate::file::{parse, FileData};
@@ -297,9 +297,10 @@ impl Backend {
         let data = Arc::new(RwLock::new(BackendData::new(php_parser, phpdoc_parser)));
         let cloned_data = Arc::clone(&data);
         let (tx, rx) = mpsc::channel(32);
+        let cloned_client = client.clone();
 
         let analysis_thread_handle = Arc::new(Mutex::new(Some(tokio::spawn(async move {
-            analyze::main_thread(rx, cloned_data);
+            analyze::main_thread(rx, cloned_data, cloned_client).await;
         }))));
 
         Ok(Self {
@@ -312,31 +313,6 @@ impl Backend {
 
             data,
         })
-    }
-
-    /// Resolves a namespace into a `PathBuf`.
-    ///
-    /// Can guarantee that at the time of calling, the resolved path exists. Which isn't saying
-    /// much but should be worth something, right?
-    ///
-    /// The question of what the path represents remains an exercise to the reader. It could
-    /// represent either a file or a directory, and the user would have to check.
-    async fn resolve_ns(&self, ns: PhpNamespace) -> Result<PathBuf, ResolutionError> {
-        let data_guard = self.data.read().await;
-        for (original_ns, dirs) in data_guard.ns_to_dir.iter() {
-            if !ns.starts_with(original_ns) {
-                continue;
-            }
-
-            for dir in dirs.iter() {
-                let pathbuf = original_ns.as_pathbuf(dir, &ns);
-                if pathbuf.exists() {
-                    return Ok(pathbuf);
-                }
-            }
-        }
-
-        Err(ResolutionError::NamespaceNotFound(ns.clone()))
     }
 
     async fn read_composer_file(
@@ -514,9 +490,16 @@ impl LanguageServer for Backend {
             .log_message(MessageType::LOG, "server shutdown")
             .await;
 
-        if let Err(e) = self.sender_to_analysis.send(AnalysisThreadMessage::Shutdown).await {
+        if let Err(e) = self
+            .sender_to_analysis
+            .send(AnalysisThreadMessage::Shutdown)
+            .await
+        {
             self.client
-                .log_message(MessageType::ERROR, format!("analysis thread already shutdown with message: {}", e))
+                .log_message(
+                    MessageType::ERROR,
+                    format!("analysis thread already shutdown with message: {}", e),
+                )
                 .await;
         }
         let mut mtx = self.analysis_thread_handle.lock().await;

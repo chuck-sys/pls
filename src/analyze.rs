@@ -1,16 +1,17 @@
-use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::{lsp_types::*, Client, UriExt};
 
 use tree_sitter::Node;
 
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::RwLock;
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::backend::BackendData;
-use crate::messages::AnalysisThreadMessage;
 use crate::compat::to_range;
-use crate::php_namespace::{PhpNamespace, SegmentPool};
+use crate::messages::{AnalysisThreadMessage, AnalysisThreadQueueItem};
+use crate::php_namespace::{resolve_ns, PhpNamespace, SegmentPool};
 use crate::scope::{Scope, SUPERGLOBALS};
 use crate::types::{
     Class, CustomType, CustomTypeMeta, CustomTypesDatabase, FromNode, Method, Property, Type,
@@ -20,11 +21,63 @@ use crate::types::{
 pub async fn main_thread(
     mut rx: Receiver<AnalysisThreadMessage>,
     data: Arc<RwLock<BackendData>>,
+    client: Client,
 ) {
+    let mut q = VecDeque::new();
+
+    /// Max number of items from queue to run per `recv`
+    const PROCESS_ITEMS_PER_RECV: usize = 10;
+
     while let Some(msg) = rx.recv().await {
         use AnalysisThreadMessage::*;
+
         match msg {
-            Shutdown => break
+            Shutdown => break,
+            AnalyzeUri(uri) => q.push_back(AnalysisThreadQueueItem::Uri(uri)),
+            AnalyzeNs(ns) => q.push_back(AnalysisThreadQueueItem::Ns(ns)),
+        }
+
+        for _ in 0..PROCESS_ITEMS_PER_RECV {
+            let data_lock = &mut *data.write().await;
+            match q.pop_back() {
+                Some(AnalysisThreadQueueItem::Uri(uri)) => {
+                    let dependencies = if let Some(filedata) = data_lock.file_trees.get(&uri) {
+                        injest_types(
+                            filedata.php_tree.root_node(),
+                            &filedata.contents,
+                            &mut data_lock.ns_store,
+                            &mut data_lock.types,
+                        )
+                    } else {
+                        todo!("they should be processed, idk why they aren't");
+                    };
+
+                    for dep_ns in dependencies.into_iter() {
+                        q.push_back(AnalysisThreadQueueItem::Ns(dep_ns));
+                    }
+                }
+                Some(AnalysisThreadQueueItem::Ns(ns)) => {
+                    match resolve_ns(&ns, &data_lock.ns_to_dir) {
+                        Ok(pathbuf) => match std::fs::read_to_string(pathbuf) {
+                            Ok(contents) => {
+                                let php_tree = data_lock.php_parser.parse(&contents, None).unwrap();
+                                let dependencies = injest_types(
+                                    php_tree.root_node(),
+                                    &contents,
+                                    &mut data_lock.ns_store,
+                                    &mut data_lock.types,
+                                );
+                                for dep_ns in dependencies.into_iter() {
+                                    q.push_back(AnalysisThreadQueueItem::Ns(dep_ns));
+                                }
+                            }
+                            Err(e) => client.log_message(MessageType::ERROR, e.to_string()).await,
+                        },
+                        Err(e) => client.log_message(MessageType::ERROR, e.to_string()).await,
+                    }
+                }
+                _ => break,
+            }
         }
     }
 }
