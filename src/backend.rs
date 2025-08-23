@@ -385,24 +385,20 @@ impl Backend {
 
     async fn get_hover_markup(&self, uri: &Uri, position: &Position) -> Option<String> {
         let data_guard = self.data.read().await;
-
-        if let Some(data) = data_guard.file_trees.get(uri) {
-            let root_node = data.php_tree.root_node();
-            let n =
-                root_node.named_descendant_for_point_range(to_point(position), to_point(position));
-
-            match n {
-                None => None,
-                Some(n) => {
-                    if n.kind() == "name" {
-                        n.parent().map(|n| n.to_string())
-                    } else {
-                        Some(n.to_string())
-                    }
+        let file_data = data_guard.file_trees.get(uri)?;
+        let root_node = file_data.php_tree.root_node();
+        let n = root_node.named_descendant_for_point_range(to_point(position), to_point(position))?;
+        if n.kind() == "name" {
+            let parent = n.parent()?;
+            match parent.kind() {
+                "variable_name" => Some("Variable!".to_string()),
+                "class_declaration" => {
+                    None
                 }
+                _ => None,
             }
         } else {
-            None
+            Some(n.to_string())
         }
     }
 }
@@ -531,6 +527,8 @@ impl LanguageServer for Backend {
             &data.text_document.text,
             &mut data_guard.ns_store,
         ));
+
+        let _ = self.sender_to_analysis.send(AnalysisThreadMessage::AnalyzeUri(data.text_document.uri.clone())).await;
 
         self.client
             .publish_diagnostics(
