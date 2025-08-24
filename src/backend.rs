@@ -600,6 +600,8 @@ impl LanguageServer for Backend {
                     &mut data_guard.ns_store,
                 ));
 
+                let _ = self.sender_to_analysis.send(AnalysisThreadMessage::AnalyzeUri(data.text_document.uri.clone())).await;
+
                 self.client
                     .publish_diagnostics(
                         data.text_document.uri.clone(),
