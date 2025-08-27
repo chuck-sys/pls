@@ -56,24 +56,32 @@ pub async fn main_thread(
                         q.push_back(AnalysisThreadQueueItem::Ns(dep_ns));
                     }
                 }
-                Some(AnalysisThreadQueueItem::Ns(ns)) => {
-                    match resolve_ns(&ns, &data_lock.ns_to_dir) {
-                        Ok(pathbuf) => match std::fs::read_to_string(pathbuf) {
-                            Ok(contents) => {
-                                let php_tree = data_lock.php_parser.parse(&contents, None).unwrap();
-                                let dependencies = injest_types(
-                                    php_tree.root_node(),
-                                    &contents,
-                                    &mut data_lock.ns_store,
-                                    &mut data_lock.types,
-                                );
-                                for dep_ns in dependencies.into_iter() {
-                                    q.push_back(AnalysisThreadQueueItem::Ns(dep_ns));
-                                }
+                Some(AnalysisThreadQueueItem::Ns(mut ns)) => {
+                    match ns.pop() {
+                        Some(base) => {
+                            match resolve_ns(&ns, &data_lock.ns_to_dir) {
+                                Ok(dir) => {
+                                    let path = dir.join(format!("{base}.php"));
+                                    match std::fs::read_to_string(path) {
+                                        Ok(contents) => {
+                                            let php_tree = data_lock.php_parser.parse(&contents, None).unwrap();
+                                            let dependencies = injest_types(
+                                                php_tree.root_node(),
+                                                &contents,
+                                                &mut data_lock.ns_store,
+                                                &mut data_lock.types,
+                                            );
+                                            for dep_ns in dependencies.into_iter() {
+                                                q.push_back(AnalysisThreadQueueItem::Ns(dep_ns));
+                                            }
+                                        }
+                                        Err(e) => client.log_message(MessageType::ERROR, e.to_string()).await,
+                                    }
+                                },
+                                Err(e) => client.log_message(MessageType::ERROR, e.to_string()).await,
                             }
-                            Err(e) => client.log_message(MessageType::ERROR, e.to_string()).await,
                         },
-                        Err(e) => client.log_message(MessageType::ERROR, e.to_string()).await,
+                        None => {},
                     }
                 }
                 _ => break,
