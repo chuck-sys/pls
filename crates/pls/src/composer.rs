@@ -351,18 +351,18 @@ mod test {
         let mut pool = SegmentPool::new();
         let a = autoload! {
             pool,
-            "PhpStorm\\" => ["phpstorm-stubs/"]
+            "PhpStorm\\" => ["../../phpstorm-stubs/"]
         };
         let to_find_dir = pool.intern_str("PhpStorm\\curl\\");
         let to_find_file = pool.intern_str("PhpStorm\\curl\\curl");
 
         assert_eq!(
             a.resolve_as_dir(to_find_dir).unwrap(),
-            path!("phpstorm-stubs/curl/")
+            path!("../../phpstorm-stubs/curl/")
         );
         assert_eq!(
             a.resolve_as_file(to_find_file).unwrap(),
-            path!("phpstorm-stubs/curl/curl.php")
+            path!("../../phpstorm-stubs/curl/curl.php")
         );
     }
 }

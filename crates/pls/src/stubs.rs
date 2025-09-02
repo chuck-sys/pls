@@ -4,8 +4,6 @@ use tree_sitter_php::LANGUAGE_PHP;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::fs::File;
-use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
@@ -119,10 +117,7 @@ impl FileMapping {
         let mut parser = Parser::new();
         parser.set_language(&LANGUAGE_PHP.into()).unwrap();
 
-        let f = File::open(filename)?;
-        let mut buf = BufReader::new(f);
-        let mut contents = String::new();
-        let _ = buf.read_to_string(&mut contents)?;
+        let contents = std::fs::read_to_string(filename)?;
 
         let tree = parser.parse(contents.as_str(), None).unwrap();
         let root_node = tree.root_node();
@@ -185,7 +180,7 @@ const CLASSES = [
 
     #[test]
     fn parse_phpstorm_stubs() {
-        let file_name = PathBuf::from_str("phpstorm-stubs/PhpStormStubsMap.php").unwrap();
+        let file_name = PathBuf::from_str("../../phpstorm-stubs/PhpStormStubsMap.php").unwrap();
         let file_mapping = FileMapping::from_filename(&file_name).unwrap();
         assert!(file_mapping.files.len() <= file_mapping.mapping.len());
         assert_eq!(
