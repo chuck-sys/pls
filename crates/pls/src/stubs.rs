@@ -1,6 +1,6 @@
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
-use tree_sitter_php::language_php;
+use tree_sitter_php::LANGUAGE_PHP;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
@@ -11,7 +11,7 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
 static CONST_QUERY: LazyLock<Query> =
-    LazyLock::new(|| Query::new(&language_php(), "(array_creation_expression) @a").unwrap());
+    LazyLock::new(|| Query::new(&LANGUAGE_PHP.into(), "(array_creation_expression) @a").unwrap());
 
 pub struct FileMapping {
     mapping: HashMap<String, Arc<PathBuf>>,
@@ -112,10 +112,13 @@ impl FileMapping {
         Ok(Self { mapping, files })
     }
 
-    pub fn from_filename<P>(filename: P, parser: &mut Parser) -> Result<Self, MappingError>
+    pub fn from_filename<P>(filename: P) -> Result<Self, MappingError>
     where
         P: AsRef<Path>,
     {
+        let mut parser = Parser::new();
+        parser.set_language(&LANGUAGE_PHP.into()).unwrap();
+
         let f = File::open(filename)?;
         let mut buf = BufReader::new(f);
         let mut contents = String::new();
@@ -131,12 +134,12 @@ impl FileMapping {
 #[cfg(test)]
 mod test {
     use tree_sitter::Parser;
-    use tree_sitter_php::language_php;
+    use tree_sitter_php::LANGUAGE_PHP;
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
         parser
-            .set_language(&language_php())
+            .set_language(&LANGUAGE_PHP.into())
             .expect("error loading PHP grammar");
 
         parser
@@ -183,8 +186,7 @@ const CLASSES = [
     #[test]
     fn parse_phpstorm_stubs() {
         let file_name = PathBuf::from_str("phpstorm-stubs/PhpStormStubsMap.php").unwrap();
-        let mut p = parser();
-        let file_mapping = FileMapping::from_filename(&file_name, &mut p).unwrap();
+        let file_mapping = FileMapping::from_filename(&file_name).unwrap();
         assert!(file_mapping.files.len() <= file_mapping.mapping.len());
         assert_eq!(
             file_mapping

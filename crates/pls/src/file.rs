@@ -1,7 +1,8 @@
 use tower_lsp_server::lsp_types::*;
 
 use tree_sitter::{InputEdit, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
-use tree_sitter_php::language_php;
+use tree_sitter_php::LANGUAGE_PHP;
+use tree_sitter_phpdoc::language as language_phpdoc;
 
 use std::error::Error;
 use std::fmt::Display;
@@ -121,7 +122,7 @@ impl FileData {
 
 fn comment_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();
-    Q.get_or_init(|| Query::new(&language_php(), "(comment)").unwrap())
+    Q.get_or_init(|| Query::new(&LANGUAGE_PHP.into(), "(comment)").unwrap())
 }
 
 fn get_comment_ranges(node: Node<'_>, contents: &str) -> Vec<tree_sitter::Range> {
@@ -139,16 +140,19 @@ fn get_comment_ranges(node: Node<'_>, contents: &str) -> Vec<tree_sitter::Range>
 }
 
 pub fn parse(
-    (php, phpdoc): (&mut Parser, &mut Parser),
     contents: &str,
     (php_tree, doc_tree): (Option<&Tree>, Option<&Tree>),
 ) -> (Tree, Tree) {
-    let php_tree = php.parse(contents, php_tree).unwrap();
+    let mut php_parser = Parser::new();
+    php_parser.set_language(&LANGUAGE_PHP.into()).unwrap();
+    let mut phpdoc_parser = Parser::new();
+    phpdoc_parser.set_language(&language_phpdoc()).unwrap();
+    let php_tree = php_parser.parse(contents, php_tree).unwrap();
 
     let comment_ranges = get_comment_ranges(php_tree.root_node(), contents);
-    phpdoc.set_included_ranges(&comment_ranges).unwrap();
+    phpdoc_parser.set_included_ranges(&comment_ranges).unwrap();
 
-    let doc_tree = phpdoc.parse(contents, doc_tree).unwrap();
+    let doc_tree = phpdoc_parser.parse(contents, doc_tree).unwrap();
 
     (php_tree, doc_tree)
 }

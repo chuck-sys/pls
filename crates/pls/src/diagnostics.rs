@@ -1,7 +1,7 @@
 use tower_lsp_server::lsp_types::*;
 
 use tree_sitter::{Node, Query, QueryCursor, StreamingIterator};
-use tree_sitter_php::language_php;
+use tree_sitter_php::LANGUAGE_PHP;
 
 use serde::Deserialize;
 
@@ -10,9 +10,9 @@ use std::sync::LazyLock;
 use crate::compat::to_range;
 
 static MISSING_QUERY: LazyLock<Query> =
-    LazyLock::new(|| Query::new(&language_php(), "(MISSING) @missings").unwrap());
+    LazyLock::new(|| Query::new(&LANGUAGE_PHP.into(), "(MISSING) @missings").unwrap());
 static ERROR_QUERY: LazyLock<Query> =
-    LazyLock::new(|| Query::new(&language_php(), "(ERROR) @error").unwrap());
+    LazyLock::new(|| Query::new(&LANGUAGE_PHP.into(), "(ERROR) @error").unwrap());
 
 #[derive(Deserialize)]
 pub struct DiagnosticsOptions {
@@ -93,12 +93,12 @@ fn get_tree_diagnostics_errors(node: Node<'_>, content: &str) -> Vec<Diagnostic>
 #[cfg(test)]
 mod test {
     use tree_sitter::Parser;
-    use tree_sitter_php::language_php;
+    use tree_sitter_php::LANGUAGE_PHP;
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
         parser
-            .set_language(&language_php())
+            .set_language(&LANGUAGE_PHP.into())
             .expect("error loading PHP grammar");
 
         parser

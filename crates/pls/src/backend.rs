@@ -6,7 +6,7 @@ use tower_lsp_server::lsp_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
 use tree_sitter::{Node, Parser};
-use tree_sitter_php::language_php;
+use tree_sitter_php::LANGUAGE_PHP;
 use tree_sitter_phpdoc::language as language_phpdoc;
 
 use tokio::sync::mpsc;
@@ -238,9 +238,6 @@ fn document_symbols(root_node: &Node, file_contents: &str) -> Vec<DocumentSymbol
 }
 
 pub struct BackendData {
-    pub php_parser: Parser,
-    pub phpdoc_parser: Parser,
-
     pub file_trees: HashMap<Uri, FileData>,
     pub ns_store: SegmentPool,
     pub ns_to_dir: HashMap<PhpNamespace, Vec<PathBuf>>,
@@ -248,11 +245,8 @@ pub struct BackendData {
 }
 
 impl BackendData {
-    fn new(php_parser: Parser, phpdoc_parser: Parser) -> Self {
+    fn new() -> Self {
         Self {
-            php_parser,
-            phpdoc_parser,
-
             ns_store: SegmentPool::new(),
             file_trees: HashMap::new(),
             ns_to_dir: HashMap::new(),
@@ -283,18 +277,8 @@ impl Backend {
     where
         P: AsRef<Path>,
     {
-        let mut php_parser = Parser::new();
-        php_parser
-            .set_language(&language_php())
-            .expect("error loading PHP grammar");
-
-        let mut phpdoc_parser = Parser::new();
-        phpdoc_parser
-            .set_language(&language_phpdoc())
-            .expect("error loading PHPDOC grammar");
-
-        let builtins_mapping = FileMapping::from_filename(stubs_filename, &mut php_parser)?;
-        let data = Arc::new(RwLock::new(BackendData::new(php_parser, phpdoc_parser)));
+        let builtins_mapping = FileMapping::from_filename(stubs_filename)?;
+        let data = Arc::new(RwLock::new(BackendData::new()));
         let cloned_data = Arc::clone(&data);
         let (tx, rx) = mpsc::channel(32);
         let cloned_client = client.clone();
@@ -509,7 +493,6 @@ impl LanguageServer for Backend {
     async fn did_open(&self, data: DidOpenTextDocumentParams) {
         let data_guard = &mut *self.data.write().await;
         let (php_tree, comments_tree) = parse(
-            (&mut data_guard.php_parser, &mut data_guard.phpdoc_parser),
             &data.text_document.text,
             (None, None),
         );
@@ -578,7 +561,6 @@ impl LanguageServer for Backend {
                 }
 
                 let (php_tree, comments_tree) = parse(
-                    (&mut data_guard.php_parser, &mut data_guard.phpdoc_parser),
                     &entry.contents,
                     (Some(&entry.php_tree), Some(&entry.comments_tree)),
                 );
@@ -756,14 +738,14 @@ impl LanguageServer for Backend {
 mod test {
     use tower_lsp_server::lsp_types::*;
     use tree_sitter::Parser;
-    use tree_sitter_php::language_php;
+    use tree_sitter_php::LANGUAGE_PHP;
 
     use super::document_symbols;
 
     fn parser() -> Parser {
         let mut parser = Parser::new();
         parser
-            .set_language(&language_php())
+            .set_language(&LANGUAGE_PHP.into())
             .expect("error loading PHP grammar");
 
         parser

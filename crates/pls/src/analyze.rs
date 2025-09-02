@@ -1,6 +1,7 @@
 use tower_lsp_server::{lsp_types::*, Client, UriExt};
 
-use tree_sitter::Node;
+use tree_sitter::{Node, Parser};
+use tree_sitter_php::LANGUAGE_PHP;
 
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::RwLock;
@@ -27,6 +28,9 @@ pub async fn main_thread(
 
     /// Max number of items from queue to run per `recv`
     const PROCESS_ITEMS_PER_RECV: usize = 10;
+
+    let mut php_parser = Parser::new();
+    php_parser.set_language(&LANGUAGE_PHP.into()).unwrap();
 
     while let Some(msg) = rx.recv().await {
         use AnalysisThreadMessage::*;
@@ -64,7 +68,7 @@ pub async fn main_thread(
                                     let path = dir.join(format!("{base}.php"));
                                     match std::fs::read_to_string(path) {
                                         Ok(contents) => {
-                                            let php_tree = data_lock.php_parser.parse(&contents, None).unwrap();
+                                            let php_tree = php_parser.parse(&contents, None).unwrap();
                                             let dependencies = injest_types(
                                                 php_tree.root_node(),
                                                 &contents,
@@ -832,7 +836,7 @@ pub fn injest_class_declaration(
 #[cfg(test)]
 mod test {
     use tree_sitter::Parser;
-    use tree_sitter_php::language_php;
+    use tree_sitter_php::LANGUAGE_PHP;
 
     use crate::php_namespace::SegmentPool;
     use crate::scope::Scope;
@@ -843,7 +847,7 @@ mod test {
     fn parser() -> Parser {
         let mut parser = Parser::new();
         parser
-            .set_language(&language_php())
+            .set_language(&LANGUAGE_PHP.into())
             .expect("error loading PHP grammar");
 
         parser
