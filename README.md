@@ -23,30 +23,23 @@
 The following is a crude snippet of my `neovim` configuration.
 
 ```lua
-local lsp = require('lspconfig')
-local lsp_configs = require('lspconfig.configs')
-local lsp_util = require('lspconfig.util')
+vim.lsp.config('my_pls', {
+  cmd = {
+    '/path/to/executable',
+    '/path/to/executable/phpstorm-stubs/PhpStormStubsMap.php',
+  },
+  filetypes = { 'php' },
+  root_markers = { 'composer.json', '.git' },
 
-vim.lsp.set_log_level('info')
-lsp_configs.my_php_lsp = {
-  default_config = {
-    cmd = { '/path/to/executable' },
-    filetypes = { 'php' },
-    root_dir = lsp_util.root_pattern('composer.json', '.git'),
-
-    -- settings
-    init_options = {
-      diagnostics = {
-        syntax = true,
-        undefined = false,
-      },
+  init_options = {
+    diagnostics = {
+      syntax = true,
+      undefined = true,
     },
+  },
+})
 
-    capabilities = vim.lsp.protocol.make_client_capabilities(),
-  }
-}
-
-lsp.my_php_lsp.setup({})
+vim.lsp.enable('my_pls')
 ```
 
 # Dev
