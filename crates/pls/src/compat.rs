@@ -1,4 +1,4 @@
-use tower_lsp_server::lsp_types::*;
+use lsp_types::*;
 
 pub fn to_position(point: &tree_sitter::Point) -> Position {
     Position {

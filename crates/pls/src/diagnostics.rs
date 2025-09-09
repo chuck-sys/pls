@@ -1,4 +1,4 @@
-use tower_lsp_server::lsp_types::*;
+use lsp_types::*;
 
 use tree_sitter::{Node, Query, QueryCursor, StreamingIterator};
 use tree_sitter_php::LANGUAGE_PHP;

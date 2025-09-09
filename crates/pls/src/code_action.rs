@@ -1,4 +1,4 @@
-use tower_lsp_server::lsp_types::*;
+use lsp_types::*;
 
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +49,7 @@ pub fn changes_phpecho(uri: &Uri, contents: &str, version: i32) -> Option<Docume
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
-    use tower_lsp_server::lsp_types::*;
+    use lsp_types::*;
 
     use super::changes_phpecho;
 

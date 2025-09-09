@@ -1,5 +1,4 @@
-use tower_lsp_server::lsp_types::*;
-use tower_lsp_server::UriExt;
+use lsp_types::*;
 
 use serde::Deserialize;
 use serde_json::Error as SerdeError;

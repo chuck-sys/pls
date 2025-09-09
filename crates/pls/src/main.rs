@@ -1,12 +1,16 @@
 use std::env;
+use std::error::Error;
 
-use tower_lsp_server::{LspService, Server};
+use lsp_server::Connection;
+
+use lsp_types::*;
 
 mod analyze;
 mod backend;
 mod code_action;
 mod compat;
 mod composer;
+mod config;
 mod diagnostics;
 mod file;
 mod messages;
@@ -15,14 +19,14 @@ mod scope;
 mod stubs;
 mod types;
 
+use config::Config;
+
 const VERSION_ARG: &'static str = "--version";
 
-#[tokio::main]
-async fn main() {
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
+fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
+    colog::init();
 
-    // no need to include `clap` when this suffices for the moment
+    // no need to include `clap` when this will suffice
     let mut stubs_filename = None;
     for (i, arg) in env::args().enumerate() {
         if i == 0 {
@@ -30,7 +34,7 @@ async fn main() {
         }
 
         if &arg == VERSION_ARG {
-            println!(
+            log::info!(
                 "{} version {}",
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION")
@@ -44,13 +48,66 @@ async fn main() {
 
     match stubs_filename {
         None => {
-            println!("error: missing argument: location of stubs file; e.g.: `phplsp phpstorm-stubs/PhpStormStubsMap.php`");
+            log::error!(
+                "missing argument: location of stubs file; e.g.: `{} phpstorm-stubs/PhpStormStubsMap.php`",
+                env!("CARGO_PKG_NAME")
+            );
             return;
         }
         Some(stubs_filename) => {
-            let (service, socket) =
-                LspService::new(|client| backend::Backend::new(stubs_filename, client).unwrap());
-            Server::new(stdin, stdout, socket).serve(service).await;
+            log::debug!("starting server version {}", env!("CARGO_PKG_VERSION"));
+
+            let (connection, io_threads) = Connection::stdio();
+            let (id, params) = connection.initialize_start()?;
+
+            let InitializeParams {
+                root_uri,
+                capabilities,
+                workspace_folders,
+                initialization_options,
+                client_info,
+                ..
+            } = serde_json::from_value(params).expect("unable to serialize init params");
+
+            if let Some(v) = initialization_options {
+                match serde_json::from_value(v) {
+                    Ok(v) => {}
+                    Err(e) => {
+                        log::warn!("bad init options; using defaults");
+                    }
+                }
+            }
+
+            let cfg = Config::new(workspace_folders.unwrap_or(vec![]), root_uri);
+
+            connection.initialize_finish(id, serde_json::json!({
+                "capabilities": supported_capabilities(),
+                "serverInfo": {
+                    "name": env!("CARGO_PKG_NAME"),
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+            }))?;
         }
+    }
+
+    Ok(())
+}
+
+fn supported_capabilities() -> ServerCapabilities {
+    ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(
+            TextDocumentSyncKind::INCREMENTAL,
+        )),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
+            work_done_progress_options: WorkDoneProgressOptions {
+                work_done_progress: Some(false),
+            },
+            resolve_provider: Some(true),
+        })),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        ..ServerCapabilities::default()
     }
 }

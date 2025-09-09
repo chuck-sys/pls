@@ -1,16 +1,8 @@
-use tokio::task::JoinHandle;
-use tower_lsp_server::jsonrpc::{
-    Error as LspError, ErrorCode as LspErrorCode, Result as LspResult,
-};
-use tower_lsp_server::lsp_types::*;
-use tower_lsp_server::{Client, LanguageServer};
+use lsp_types::*;
 
 use tree_sitter::{Node, Parser};
 use tree_sitter_php::LANGUAGE_PHP;
 use tree_sitter_phpdoc::language as language_phpdoc;
-
-use tokio::sync::mpsc;
-use tokio::sync::{Mutex, RwLock};
 
 use serde::Deserialize;
 use serde_json::json;
@@ -736,7 +728,7 @@ impl LanguageServer for Backend {
 
 #[cfg(test)]
 mod test {
-    use tower_lsp_server::lsp_types::*;
+    use lsp_types::*;
     use tree_sitter::Parser;
     use tree_sitter_php::LANGUAGE_PHP;
 
