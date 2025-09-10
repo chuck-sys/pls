@@ -1,16 +1,9 @@
+mod composer;
 mod uri_ext;
+mod php;
+mod php_namespace;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use uri_ext::UriExt;
+pub use php_namespace::{PhpNamespace, SegmentPool, resolve_ns};
+pub use php::*;
+pub use composer::*;

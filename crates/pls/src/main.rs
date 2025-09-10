@@ -14,10 +14,8 @@ mod config;
 mod diagnostics;
 mod file;
 mod messages;
-mod php_namespace;
 mod scope;
 mod stubs;
-mod types;
 
 use config::Config;
 

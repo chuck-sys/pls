@@ -273,6 +273,7 @@ dependencies = [
  "log",
  "lsp-server",
  "lsp-types",
+ "pls-types",
  "regex",
  "serde",
  "serde_json",
@@ -286,6 +287,9 @@ name = "pls-types"
 version = "0.1.0"
 dependencies = [
  "lsp-types",
+ "serde",
+ "serde_json",
+ "tree-sitter",
 ]
 
 [[package]]

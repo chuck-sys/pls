@@ -16,3 +16,5 @@ lsp-types.workspace = true
 tree-sitter.workspace = true
 tree-sitter-php.workspace = true
 tree-sitter-phpdoc.workspace = true
+
+pls-types.workspace = true

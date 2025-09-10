@@ -9,6 +9,7 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use crate::uri_ext::UriExt;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
 
 #[derive(Deserialize)]
