@@ -270,6 +270,7 @@ name = "pls"
 version = "0.1.0"
 dependencies = [
  "colog",
+ "crossbeam-channel",
  "log",
  "lsp-server",
  "lsp-types",

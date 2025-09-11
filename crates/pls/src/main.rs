@@ -9,15 +9,16 @@ mod analyze;
 mod backend;
 mod code_action;
 mod compat;
-mod composer;
 mod config;
 mod diagnostics;
+mod global_state;
 mod file;
 mod messages;
 mod scope;
 mod stubs;
 
 use config::Config;
+use global_state::GlobalState;
 
 const VERSION_ARG: &'static str = "--version";
 
@@ -85,10 +86,20 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
                     "version": env!("CARGO_PKG_VERSION"),
                 },
             }))?;
+
+            main_loop(cfg, connection);
         }
     }
 
     Ok(())
+}
+
+fn main_loop(cfg: Config, conn: Connection) {
+    let state = GlobalState {
+        cfg,
+        send: conn.sender,
+        recv: conn.receiver,
+    };
 }
 
 fn supported_capabilities() -> ServerCapabilities {
