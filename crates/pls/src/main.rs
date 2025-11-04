@@ -5,9 +5,6 @@ use lsp_server::Connection;
 
 use lsp_types::*;
 
-mod analyze;
-mod backend;
-mod code_action;
 mod compat;
 mod config;
 mod diagnostics;
@@ -38,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION")
             );
-            return;
+            return Ok(());
         } else {
             stubs_filename = Some(arg);
             break;
@@ -51,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
                 "missing argument: location of stubs file; e.g.: `{} phpstorm-stubs/PhpStormStubsMap.php`",
                 env!("CARGO_PKG_NAME")
             );
-            return;
+            return Ok(());
         }
         Some(stubs_filename) => {
             log::debug!("starting server version {}", env!("CARGO_PKG_VERSION"));
@@ -68,14 +65,14 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
                 ..
             } = serde_json::from_value(params).expect("unable to serialize init params");
 
-            if let Some(v) = initialization_options {
-                match serde_json::from_value(v) {
-                    Ok(v) => {}
-                    Err(e) => {
-                        log::warn!("bad init options; using defaults");
-                    }
-                }
-            }
+            // if let Some(v) = initialization_options {
+            //     match serde_json::from_value(v) {
+            //         Ok(v) => {}
+            //         Err(e) => {
+            //             log::warn!("bad init options; using defaults");
+            //         }
+            //     }
+            // }
 
             let cfg = Config::new(workspace_folders.unwrap_or(vec![]), root_uri);
 

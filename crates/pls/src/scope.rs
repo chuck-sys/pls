@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use crate::php_namespace::PhpNamespace;
+use pls_types::PhpNamespace;
 
 pub static SUPERGLOBALS: LazyLock<HashSet<String>> = LazyLock::new(|| {
     let mut symbols = HashSet::new();

@@ -1,6 +1,6 @@
 use lsp_types::Uri;
 
-use crate::php_namespace::PhpNamespace;
+use pls_types::PhpNamespace;
 
 pub enum AnalysisThreadMessage {
     Shutdown,

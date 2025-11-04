@@ -1,10 +1,11 @@
 use lsp_types::{WorkspaceFolder, Uri};
 
+use std::str::FromStr;
 use std::path::PathBuf;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Config {
-    workspace_folders: Vec<WorkspaceFolder>
+    workspace_folders: Vec<PathBuf>
 }
 
 impl Config {
@@ -18,12 +19,11 @@ impl Config {
             }
         }
 
-        for folder in workspace_folders {
-            folder.uri.path().is_absolute()
-        }
-
         Config {
-            workspace_folders,
+            workspace_folders: workspace_folders
+                .into_iter()
+                .filter_map(|f| PathBuf::from_str(&f.uri.to_string()).ok())
+                .collect(),
         }
     }
 }

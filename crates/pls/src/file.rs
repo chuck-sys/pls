@@ -8,9 +8,10 @@ use std::error::Error;
 use std::fmt::Display;
 use std::sync::{Arc, OnceLock};
 
+use pls_types::PhpNamespace;
+use pls_types::Type;
+
 use crate::compat::to_point;
-use crate::php_namespace::PhpNamespace;
-use crate::types::Type;
 
 pub struct FileData {
     pub contents: String,
