@@ -1,7 +1,7 @@
 use std::env;
 use std::error::Error;
 
-use lsp_server::Connection;
+use lsp_server::{ProtocolError, Message, Connection};
 
 use lsp_types::*;
 
@@ -84,19 +84,28 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
                 },
             }))?;
 
-            main_loop(cfg, connection);
+            main_loop(cfg, connection)?;
+            io_threads.join()?;
         }
     }
 
     Ok(())
 }
 
-fn main_loop(cfg: Config, conn: Connection) {
-    let state = GlobalState {
-        cfg,
-        send: conn.sender,
-        recv: conn.receiver,
-    };
+fn main_loop(cfg: Config, conn: Connection) -> Result<(), ProtocolError> {
+    for msg in &conn.receiver {
+        match msg {
+            Message::Request(request) => {
+                if conn.handle_shutdown(&request)? {
+                    break;
+                }
+            },
+            Message::Response(response) => todo!(),
+            Message::Notification(notification) => todo!(),
+        }
+    }
+
+    Ok(())
 }
 
 fn supported_capabilities() -> ServerCapabilities {
