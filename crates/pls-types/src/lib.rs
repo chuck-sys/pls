@@ -1,9 +1,9 @@
 mod composer;
-mod uri_ext;
 mod php;
 mod php_namespace;
+mod uri_ext;
 
-pub use uri_ext::UriExt;
-pub use php_namespace::{PhpNamespace, SegmentPool, resolve_ns};
-pub use php::*;
 pub use composer::*;
+pub use php::*;
+pub use php_namespace::{PhpNamespace, SegmentPool, resolve_ns};
+pub use uri_ext::UriExt;

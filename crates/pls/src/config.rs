@@ -1,7 +1,7 @@
-use lsp_types::{WorkspaceFolder, Uri};
+use lsp_types::{Uri, WorkspaceFolder};
 
-use std::str::FromStr;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -10,7 +10,11 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(mut workspace_folders: Vec<WorkspaceFolder>, root_uri: Option<Uri>, stubs_filename: PathBuf) -> Self {
+    pub fn new(
+        mut workspace_folders: Vec<WorkspaceFolder>,
+        root_uri: Option<Uri>,
+        stubs_filename: PathBuf,
+    ) -> Self {
         if workspace_folders.is_empty() {
             if let Some(root_uri) = root_uri {
                 workspace_folders.push(WorkspaceFolder {

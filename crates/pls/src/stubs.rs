@@ -169,13 +169,17 @@ const CLASSES = [
 
         assert_eq!(file_mapping.files.len(), 1);
         assert_eq!(file_mapping.mapping.len(), 8);
-        assert!(file_mapping
-            .files
-            .contains(&PathBuf::from_str("amqp/amqp.php").unwrap()));
+        assert!(
+            file_mapping
+                .files
+                .contains(&PathBuf::from_str("amqp/amqp.php").unwrap())
+        );
         assert!(file_mapping.mapping.contains_key("AMQP\\annel"));
-        assert!(file_mapping
-            .mapping
-            .contains_key("AMQP\\Envelope\\Exception"));
+        assert!(
+            file_mapping
+                .mapping
+                .contains_key("AMQP\\Envelope\\Exception")
+        );
     }
 
     #[test]

@@ -276,7 +276,9 @@ impl FromNode for Property {
             }
         }
 
-        let t = n.child_by_field_name("type").map(|t| Type::from_node(t, content).unwrap());
+        let t = n
+            .child_by_field_name("type")
+            .map(|t| Type::from_node(t, content).unwrap());
         match (name, t) {
             (Some(name), Some(t)) => Ok(Self {
                 name,

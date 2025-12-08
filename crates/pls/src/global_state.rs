@@ -1,4 +1,4 @@
-use crossbeam_channel::{Sender, Receiver};
+use crossbeam_channel::{Receiver, Sender};
 
 use crate::config::Config;
 use crate::messages::AnalysisThreadMessage;
@@ -10,4 +10,6 @@ pub struct GlobalState {
 
     pub analysis_send: Sender<AnalysisThreadMessage>,
     pub analysis_recv: Receiver<()>,
+
+    pub running: bool,
 }

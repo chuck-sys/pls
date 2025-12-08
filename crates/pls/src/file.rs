@@ -140,10 +140,7 @@ fn get_comment_ranges(node: Node<'_>, contents: &str) -> Vec<tree_sitter::Range>
     ranges
 }
 
-pub fn parse(
-    contents: &str,
-    (php_tree, doc_tree): (Option<&Tree>, Option<&Tree>),
-) -> (Tree, Tree) {
+pub fn parse(contents: &str, (php_tree, doc_tree): (Option<&Tree>, Option<&Tree>)) -> (Tree, Tree) {
     let mut php_parser = Parser::new();
     php_parser.set_language(&LANGUAGE_PHP.into()).unwrap();
     let mut phpdoc_parser = Parser::new();

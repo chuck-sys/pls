@@ -9,8 +9,8 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::uri_ext::UriExt;
 use crate::php_namespace::{PhpNamespace, SegmentPool};
+use crate::uri_ext::UriExt;
 
 #[derive(Deserialize)]
 struct ComposerScheme {
@@ -201,8 +201,8 @@ pub fn get_composer_files(workspace_folders: &Vec<WorkspaceFolder>) -> Vec<PathB
 
 #[cfg(test)]
 mod test {
-    use serde_json::json;
     use serde_json::Value;
+    use serde_json::json;
 
     use std::collections::HashMap;
     use std::io::Cursor;

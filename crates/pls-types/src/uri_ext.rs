@@ -6,13 +6,12 @@
 /// as long as you include the `UriExt` trait.
 ///
 /// See https://github.com/tower-lsp-community/tower-lsp-server/issues/34
-
 use lsp_types::Uri;
 
 use std::borrow::Cow;
-use std::path::{PathBuf, Path};
-use std::str::FromStr;
 use std::fs::canonicalize as strict_canonicalize;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 mod sealed {
     pub trait Sealed {}
@@ -53,7 +52,11 @@ impl UriExt for Uri {
         };
 
         if cfg!(windows) {
-            Uri::from_str(&format!("file:///{}", fragment.to_string_lossy().replace("\\", "/"))).ok()
+            Uri::from_str(&format!(
+                "file:///{}",
+                fragment.to_string_lossy().replace("\\", "/")
+            ))
+            .ok()
         } else {
             Uri::from_str(&format!("file://{}", fragment.to_string_lossy())).ok()
         }
