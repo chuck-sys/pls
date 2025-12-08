@@ -1,6 +1,8 @@
 use std::env;
 use std::error::Error;
 
+use crossbeam_channel::{RecvError, select};
+
 use lsp_server::{ProtocolError, Message, Connection};
 
 use lsp_types::*;
@@ -16,6 +18,7 @@ mod stubs;
 
 use config::Config;
 use global_state::GlobalState;
+use messages::AnalysisThreadMessage;
 
 const VERSION_ARG: &'static str = "--version";
 
@@ -74,8 +77,6 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
             //     }
             // }
 
-            let cfg = Config::new(workspace_folders.unwrap_or(vec![]), root_uri);
-
             connection.initialize_finish(id, serde_json::json!({
                 "capabilities": supported_capabilities(),
                 "serverInfo": {
@@ -84,24 +85,55 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
                 },
             }))?;
 
-            main_loop(cfg, connection)?;
+            let cfg = Config::new(workspace_folders.unwrap_or(vec![]), root_uri, std::path::PathBuf::from(stubs_filename));
+            let (main_send, thread_recv) = crossbeam_channel::unbounded();
+            let (thread_send, main_recv) = crossbeam_channel::unbounded();
+            let state = GlobalState {
+                cfg,
+                connection,
+
+                analysis_send: main_send,
+                analysis_recv: main_recv,
+            };
+
+            let analysis_handle = std::thread::spawn(|| {
+                for msg in thread_recv {
+                    match msg {
+                        AnalysisThreadMessage::Shutdown => break,
+                        AnalysisThreadMessage::AnalyzeUri(uri) => todo!(),
+                    }
+                }
+            });
+
+            main_loop(state)?;
             io_threads.join()?;
+            if let Err(e) = analysis_handle.join() {
+                log::error!("could not join analysis thread after shutdown issued: {:?}", e);
+            }
         }
     }
 
     Ok(())
 }
 
-fn main_loop(cfg: Config, conn: Connection) -> Result<(), ProtocolError> {
-    for msg in &conn.receiver {
-        match msg {
-            Message::Request(request) => {
-                if conn.handle_shutdown(&request)? {
-                    break;
+fn main_loop(state: GlobalState) -> Result<(), RecvError> {
+    loop {
+        select! {
+            recv(state.connection.receiver) -> msg => {
+                match msg? {
+                    Message::Request(request) => {
+                        if let Ok(true) = state.connection.handle_shutdown(&request) {
+                            let _ = state.analysis_send.send(AnalysisThreadMessage::Shutdown);
+                            break;
+                        }
+                    },
+                    Message::Response(response) => todo!(),
+                    Message::Notification(notification) => todo!(),
                 }
             },
-            Message::Response(response) => todo!(),
-            Message::Notification(notification) => todo!(),
+            recv(state.analysis_recv) -> _ => {
+
+            },
         }
     }
 

@@ -5,11 +5,12 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    workspace_folders: Vec<PathBuf>
+    stubs_filename: PathBuf,
+    workspace_folders: Vec<PathBuf>,
 }
 
 impl Config {
-    pub fn new(mut workspace_folders: Vec<WorkspaceFolder>, root_uri: Option<Uri>) -> Self {
+    pub fn new(mut workspace_folders: Vec<WorkspaceFolder>, root_uri: Option<Uri>, stubs_filename: PathBuf) -> Self {
         if workspace_folders.is_empty() {
             if let Some(root_uri) = root_uri {
                 workspace_folders.push(WorkspaceFolder {
@@ -20,6 +21,7 @@ impl Config {
         }
 
         Config {
+            stubs_filename,
             workspace_folders: workspace_folders
                 .into_iter()
                 .filter_map(|f| PathBuf::from_str(&f.uri.to_string()).ok())
