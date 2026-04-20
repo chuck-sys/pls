@@ -6,16 +6,18 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
+use std::rc::Rc;
 
 static CONST_QUERY: LazyLock<Query> =
     LazyLock::new(|| Query::new(&LANGUAGE_PHP.into(), "(array_creation_expression) @a").unwrap());
 
+#[derive(Default)]
 pub struct FileMapping {
-    mapping: HashMap<String, Arc<PathBuf>>,
+    pub mapping: HashMap<String, Rc<PathBuf>>,
 
     /// Set of files involved, interned to probably keep memory usage low.
-    files: HashSet<Arc<PathBuf>>,
+    pub files: HashSet<Rc<PathBuf>>,
 }
 
 #[derive(Debug)]
@@ -79,7 +81,7 @@ impl FileMapping {
     fn node_to_mapping(node: Node<'_>, content: &str) -> Result<Self, MappingError> {
         let mut cursor = QueryCursor::new();
         let mut captures = cursor.captures(&CONST_QUERY, node, content.as_bytes());
-        let mut files: HashSet<Arc<PathBuf>> = HashSet::new();
+        let mut files: HashSet<Rc<PathBuf>> = HashSet::new();
         let mut mapping = HashMap::new();
 
         while let Some((m, _)) = captures.next() {
@@ -95,11 +97,7 @@ impl FileMapping {
                     let (item0, item1) = Self::node_to_single_mapping(child, content)?;
                     let file = PathBuf::from_str(&item1).unwrap();
 
-                    let file = if files.contains(&file) {
-                        files.get(&file).unwrap().clone()
-                    } else {
-                        Arc::from(file)
-                    };
+                    let file = files.get(&file).map(|f| f.clone()).unwrap_or(Rc::from(file));
 
                     mapping.insert(item0, file.clone());
                     files.insert(file);

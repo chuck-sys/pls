@@ -7,9 +7,12 @@ edition = "2024"
 description = "A very bad implementation of a PHP Language Server, in Rust of course."
 
 [workspace.dependencies]
+thiserror = "2"
+anyhow = "1.0"
 regex = "1.11.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+salsa = "0.26.0"
 log = "0.4.28"
 lsp-server = "0.7.9"
 lsp-types = "0.97.0"

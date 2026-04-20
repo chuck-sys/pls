@@ -1,23 +1,23 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::composer::ResolutionError;
 
 /// Space-saving way of storing php namespaces.
 #[derive(Debug, Clone)]
-pub struct SegmentPool(pub HashSet<Arc<str>>);
+pub struct SegmentPool(pub HashSet<Rc<str>>);
 
 impl SegmentPool {
     pub fn new() -> Self {
         Self(HashSet::new())
     }
 
-    fn intern_segment(&mut self, s: &str) -> Arc<str> {
+    fn intern_segment(&mut self, s: &str) -> Rc<str> {
         if let Some(segment) = self.0.get(s) {
             segment.clone()
         } else {
-            let a: Arc<str> = Arc::from(s);
+            let a: Rc<str> = Rc::from(s);
             self.0.insert(a.clone());
             a
         }
@@ -45,7 +45,7 @@ impl SegmentPool {
             if let Some(s) = self.0.get(s) {
                 segments.push(s.clone());
             } else {
-                let s: Arc<str> = Arc::from(s);
+                let s: Rc<str> = Rc::from(s);
                 segments.push(s.clone());
                 self.0.insert(s);
             }
@@ -57,7 +57,7 @@ impl SegmentPool {
 
 /// A PHP namespace that starts from the root.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct PhpNamespace(pub Vec<Arc<str>>);
+pub struct PhpNamespace(pub Vec<Rc<str>>);
 
 impl PhpNamespace {
     pub fn empty() -> Self {
@@ -85,17 +85,17 @@ impl PhpNamespace {
         other.is_within(self)
     }
 
-    pub fn push(&mut self, s: Arc<str>) {
+    pub fn push(&mut self, s: Rc<str>) {
         self.0.push(s);
     }
 
-    pub fn pop(&mut self) -> Option<Arc<str>> {
+    pub fn pop(&mut self) -> Option<Rc<str>> {
         self.0.pop()
     }
 
     pub fn extend<I>(&mut self, iter: I)
     where
-        I: IntoIterator<Item = Arc<str>>,
+        I: IntoIterator<Item = Rc<str>>,
     {
         self.0.extend(iter);
     }

@@ -1,7 +1,13 @@
 use lsp_types::Uri;
 
+use std::path::PathBuf;
+
+#[derive(Debug)]
+pub enum Task {
+    AnalyzeStubs,
+}
+
 pub enum AnalysisThreadMessage {
-    Shutdown,
     AnalyzeUri(Uri),
 }
 

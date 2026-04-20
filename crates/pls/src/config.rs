@@ -5,8 +5,8 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    stubs_filename: PathBuf,
-    workspace_folders: Vec<PathBuf>,
+    pub stubs_filename: PathBuf,
+    pub workspace_folders: Vec<PathBuf>,
 }
 
 impl Config {

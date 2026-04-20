@@ -5,6 +5,7 @@ edition.workspace = true
 description.workspace = true
 
 [dependencies]
+salsa.workspace = true
 lsp-types.workspace = true
 tree-sitter.workspace = true
 serde.workspace = true
