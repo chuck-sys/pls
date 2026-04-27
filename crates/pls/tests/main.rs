@@ -1,18 +1,13 @@
 //! Integration tests go here
-use lsp_server::{Message, RequestId, Connection, Request, Notification};
-use lsp_types::request::Request as _;
-use lsp_types::notification::Notification as _;
-use lsp_types::*;
-use serde_json::{json, Value};
+use lsp_server::Connection;
 
 use pls::global_state::GlobalState;
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
 mod support;
 
-const STUBS_FILENAME: &'static str = "";
+const STUBS_FILENAME: &'static str = "./phpstorm-stubs/PhpStormStubsMap.php";
 
 #[derive(Debug)]
 enum QuittingState {
@@ -23,28 +18,18 @@ enum QuittingState {
 #[test]
 fn minimal_config_that_quits() {
     let (connection, client) = Connection::memory();
+    let mut client = support::FakeClient::new(client);
     let (tx, rx) = crossbeam_channel::bounded(2);
     let tx2 = tx.clone();
     thread::spawn(move || {
-        let mut state = GlobalState::new("non-existant.txt", connection).expect("global state initialization");
+        let mut state = GlobalState::new(STUBS_FILENAME, connection).expect("global state initialization");
         state.main_loop();
 
         let _ = tx2.send(QuittingState::GracefulShutdown);
     });
 
-    client.sender.send(Request::new(RequestId::from(1), "initialize".to_string(), InitializeParams {
-        process_id: None,
-        workspace_folders: Some(vec![
-            WorkspaceFolder {
-                uri: Uri::from_str("file://.").unwrap(),
-                name: String::from("folder"),
-            },
-        ]),
-        ..Default::default()
-    }).into()).unwrap();
-    client.sender.send(Notification::new("initialized".to_string(), InitializedParams {}).into()).unwrap();
-    client.sender.send(Request::new(RequestId::from(2), request::Shutdown::METHOD.to_owned(), Value::Null).into()).unwrap();
-    client.sender.send(Notification::new("exit".to_string(), Value::Null).into()).unwrap();
+    client.initialize();
+    client.shutdown();
 
     let wait_time = Duration::from_secs(2);
     thread::spawn(move || {
