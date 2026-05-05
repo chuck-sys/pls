@@ -1,21 +1,29 @@
 use lsp_types::*;
-use lsp_server::{Message, Connection};
+use lsp_server::{Message, Connection, Notification};
 use crossbeam_channel::{select, Receiver, Sender};
 
 use std::path::PathBuf;
+use std::collections::HashMap;
 
 use pls_types::SegmentPool;
 
+use crate::registry::NotificationRegistry;
 use crate::config::Config;
-use crate::registry::{NotificationRegistry};
 use crate::messages::Task;
 use crate::stubs::FileMapping;
+
+#[derive(Debug)]
+pub struct FileInfo {
+    pub file_name: PathBuf,
+    pub ast: tree_sitter::Tree,
+    pub symbols: HashMap<tree_sitter::Range, ()>,
+    pub diagnostics: Vec<()>,
+}
 
 /// Inspired by `rust-analyzer`
 pub struct GlobalState {
     pub config: Config,
     pub connection: lsp_server::Connection,
-    pub notification_registry: NotificationRegistry,
 
     pub worker_send: Sender<Task>,
     pub worker_recv: Receiver<Task>,
@@ -51,7 +59,6 @@ impl GlobalState {
             root_uri,
             PathBuf::from(stubs_filename),
         );
-        let notification_registry = NotificationRegistry::default();
         let (worker_send, worker_recv) = crossbeam_channel::unbounded();
         worker_send.send(Task::AnalyzeStubs).expect("stubs should be available for analysis");
 
@@ -61,7 +68,6 @@ impl GlobalState {
         let x = Self {
             connection,
             config,
-            notification_registry,
             fqn_interns,
             stub_mappings,
 
@@ -72,7 +78,7 @@ impl GlobalState {
         Ok(x)
     }
 
-    pub fn main_loop(&mut self) {
+    pub fn main_loop(&mut self, notif_reg: &NotificationRegistry) {
         loop {
             select! {
                 recv(&self.connection.receiver) -> msg => {
@@ -82,8 +88,7 @@ impl GlobalState {
                                 return;
                             }
                         }
-                        Ok(Message::Notification(not)) => {
-                        }
+                        Ok(Message::Notification(not)) => self.handle_notification(notif_reg, not),
                         Ok(Message::Response(resp)) => {
                             log::error!("Unexpected response: {:?}", resp);
                         }
@@ -104,6 +109,12 @@ impl GlobalState {
                     }
                 }
             }
+        }
+    }
+
+    fn handle_notification(&mut self, reg: &NotificationRegistry, notif: Notification) {
+        if let Err(e) = reg.exec(self, notif) {
+            log::error!("Err in handling executing notification: {e:?}");
         }
     }
 }

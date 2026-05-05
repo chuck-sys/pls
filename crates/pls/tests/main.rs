@@ -1,9 +1,11 @@
 //! Integration tests go here
 use lsp_server::Connection;
 
-use pls::global_state::GlobalState;
 use std::thread;
 use std::time::Duration;
+
+use pls::global_state::GlobalState;
+use pls::registry::NotificationRegistry;
 
 mod support;
 
@@ -23,7 +25,8 @@ fn minimal_config_that_quits() {
     let tx2 = tx.clone();
     thread::spawn(move || {
         let mut state = GlobalState::new(STUBS_FILENAME, connection).expect("global state initialization");
-        state.main_loop();
+        let notification_registry = NotificationRegistry::default();
+        state.main_loop(&notification_registry);
 
         let _ = tx2.send(QuittingState::GracefulShutdown);
     });

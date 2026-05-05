@@ -1,7 +1,10 @@
 use lsp_types::DidOpenTextDocumentParams;
 
-pub fn did_open_text_document<Db: salsa::Database>(
+use crate::global_state::GlobalState;
+
+pub fn did_open_text_document(
+    state: &mut GlobalState,
     params: DidOpenTextDocumentParams,
-) -> Result<(), std::convert::Infallible> {
+) -> anyhow::Result<()> {
     todo!()
 }

@@ -7,4 +7,4 @@ mod handlers;
 mod messages;
 mod scope;
 mod stubs;
-mod registry;
+pub mod registry;
