@@ -15,9 +15,35 @@ use crate::stubs::FileMapping;
 #[derive(Debug)]
 pub struct FileInfo {
     pub file_name: PathBuf,
+    pub content: String,
     pub ast: tree_sitter::Tree,
-    pub symbols: HashMap<tree_sitter::Range, ()>,
-    pub diagnostics: Vec<()>,
+    pub version: i32,
+    // pub symbols: HashMap<tree_sitter::Range, ()>,
+    // pub diagnostics: Vec<()>,
+}
+
+pub struct Parsers {
+    pub php: tree_sitter::Parser,
+    pub phpdoc: tree_sitter::Parser,
+}
+
+impl Parsers {
+    pub fn new() -> Self {
+        let mut php = tree_sitter::Parser::new();
+        php.set_language(&tree_sitter_php::LANGUAGE_PHP.into()).expect("unable to set php language parser");
+        let mut phpdoc = tree_sitter::Parser::new();
+        phpdoc.set_language(&tree_sitter_phpdoc::language()).expect("unable to set phpdoc language parser");
+
+        Self {
+            php,
+            phpdoc,
+        }
+    }
+
+    /// TODO parse phpdoc into ast, probably requires changes to [`FileInfo`]
+    pub fn parse(&mut self, content: &str, original_tree: Option<&tree_sitter::Tree>) -> Option<tree_sitter::Tree> {
+        self.php.parse(content, original_tree)
+    }
 }
 
 /// Inspired by `rust-analyzer`
@@ -30,6 +56,9 @@ pub struct GlobalState {
 
     pub fqn_interns: SegmentPool,
     pub stub_mappings: FileMapping,
+
+    pub file_infos: HashMap<PathBuf, FileInfo>,
+    pub parsers: Parsers,
 }
 
 impl GlobalState {
@@ -73,6 +102,9 @@ impl GlobalState {
 
             worker_send,
             worker_recv,
+
+            file_infos: HashMap::new(),
+            parsers: Parsers::new(),
         };
 
         Ok(x)
