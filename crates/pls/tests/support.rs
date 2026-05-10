@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use lsp_server::{Notification, Request, RequestId, Connection};
+use lsp_server::{Notification, Message, Request, RequestId, Response, Connection};
 use lsp_types::*;
 
 use std::str::FromStr;
@@ -18,7 +18,26 @@ impl FakeClient {
         }
     }
 
-    pub fn request<R>(&mut self, params: R::Params)
+    pub fn next_response(&mut self, id: usize, limit: usize) -> anyhow::Result<Response> {
+        let id = RequestId::from(id as i32);
+
+        let mut trials = 0;
+
+        for msg in &self.conn.receiver {
+            match msg {
+                Message::Response(resp) if resp.id == id => return Ok(resp.clone()),
+                _ => trials += 1,
+            }
+
+            if trials >= limit {
+                break;
+            }
+        }
+
+        Err(anyhow::anyhow!("no responses within the previous {limit} messages"))
+    }
+
+    pub fn request<R>(&mut self, params: R::Params) -> usize
         where R: lsp_types::request::Request,
               R::Params: Serialize,
     {
@@ -31,6 +50,8 @@ impl FakeClient {
         ).unwrap();
 
         self.next_req_id += 1;
+
+        self.next_req_id - 1
     }
 
     pub fn notify<N>(&self, params: N::Params)

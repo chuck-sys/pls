@@ -1,5 +1,5 @@
 use lsp_types::*;
-use lsp_server::{Message, Connection, Notification};
+use lsp_server::{Message, Connection, Notification, Request};
 use crossbeam_channel::{select, Receiver, Sender};
 
 use std::path::PathBuf;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use pls_types::SegmentPool;
 
-use crate::registry::NotificationRegistry;
+use crate::registry::{RequestRegistry, NotificationRegistry};
 use crate::config::Config;
 use crate::messages::Task;
 use crate::stubs::FileMapping;
@@ -110,7 +110,7 @@ impl GlobalState {
         Ok(x)
     }
 
-    pub fn main_loop(&mut self, notif_reg: &NotificationRegistry) {
+    pub fn main_loop(&mut self, (notif_reg, req_reg): (&NotificationRegistry, &RequestRegistry)) {
         loop {
             select! {
                 recv(&self.connection.receiver) -> msg => {
@@ -119,6 +119,8 @@ impl GlobalState {
                             if let Ok(true) = self.connection.handle_shutdown(&req) {
                                 return;
                             }
+
+                            self.handle_request(req_reg, req);
                         }
                         Ok(Message::Notification(not)) => self.handle_notification(notif_reg, not),
                         Ok(Message::Response(resp)) => {
@@ -141,6 +143,12 @@ impl GlobalState {
                     }
                 }
             }
+        }
+    }
+
+    fn handle_request(&mut self, reg: &RequestRegistry, req: Request) {
+        if let Err(e) = reg.exec(self, req) {
+            log::error!("Err in handling executing request: {e:?}");
         }
     }
 

@@ -31,9 +31,10 @@ fn send_err<T: serde::Serialize>(connection: &Connection, id: RequestId, code: l
 }
 
 pub fn code_action(
+    request_id: RequestId,
     state: &mut GlobalState,
-    (request_id, params): (RequestId, CodeActionParams),
-) -> Result<(), std::convert::Infallible> {
+    params: CodeActionParams,
+) -> anyhow::Result<()> {
     let actions: CodeActionResponse = Vec::new();
 
     let _ = send_ok(&state.connection, request_id, &actions);

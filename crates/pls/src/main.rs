@@ -54,8 +54,9 @@ fn main() -> anyhow::Result<()> {
             let (connection, io_threads) = Connection::stdio();
             let mut state = GlobalState::new(&stubs_filename, connection).expect("global state initialization");
             let notification_registry = registry::NotificationRegistry::default();
+            let request_registry = registry::RequestRegistry::default();
 
-            state.main_loop(&notification_registry);
+            state.main_loop((&notification_registry, &request_registry));
             io_threads.join()?;
         }
     }
