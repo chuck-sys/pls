@@ -1,6 +1,5 @@
 use crossbeam_channel::{Receiver, Sender, select};
 use lsp_server::{Connection, Message, Notification, Request};
-use lsp_types::notification::PublishDiagnostics;
 use lsp_types::*;
 
 use std::collections::HashMap;
@@ -130,9 +129,14 @@ impl GlobalState {
 
                             self.handle_request(req_reg, req);
                         }
-                        Ok(Message::Notification(not)) => self.handle_notification(notif_reg, not),
+                        Ok(Message::Notification(not)) => {
+                            self.handle_notification(notif_reg, not)
+                        }
                         Ok(Message::Response(resp)) => log::error!("Unexpected response: {resp:?}"),
-                        Err(e) => log::error!("Err in receiving connection message: {e:?}"),
+                        Err(e) => {
+                            log::error!("Err in receiving connection message: {e:?}");
+                            break;
+                        }
                     }
                 }
                 recv(&self.worker_recv) -> task => {

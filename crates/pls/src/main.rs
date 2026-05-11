@@ -28,11 +28,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         if &arg == VERSION_ARG {
-            log::info!(
-                "{} version {}",
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION")
-            );
+            log::info!("{} version {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             return Ok(());
         } else {
             stubs_filename = Some(arg);
@@ -49,16 +45,17 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Some(stubs_filename) => {
-            log::debug!("starting server version {}", env!("CARGO_PKG_VERSION"));
+            log::info!("starting server version {}", env!("CARGO_PKG_VERSION"));
 
-            let (connection, io_threads) = Connection::stdio();
+            let (connection, _io_threads) = Connection::stdio();
             let mut state =
                 GlobalState::new(&stubs_filename, connection).expect("global state initialization");
             let notification_registry = registry::NotificationRegistry::default();
             let request_registry = registry::RequestRegistry::default();
 
             state.main_loop((&notification_registry, &request_registry));
-            io_threads.join()?;
+            // joining io_threads usually hangs everything because they are waiting for inputs in
+            // some syscall; we get our os to clean up the threads instead.
         }
     }
 

@@ -28,6 +28,18 @@ pub fn did_save_text_document(
 
     let (php_ast, phpdoc_ast) = parse(&content, (None, None));
     let diagnostics = syntax(php_ast.root_node(), &content);
+    state
+        .connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            PublishDiagnostics::METHOD.to_string(),
+            PublishDiagnosticsParams {
+                uri: params.text_document.uri,
+                version: Some(version),
+                diagnostics: diagnostics.clone(),
+            },
+        )))?;
+
 
     state.file_infos.insert(
         file_name.clone(),
@@ -118,12 +130,26 @@ pub fn did_change_text_document(
         }
     }
 
+    file_info.version = params.text_document.version;
+
     // FIXME handle errors when you execute document changes
     (file_info.php_ast, file_info.phpdoc_ast) = parse(
         &file_info.content,
         (Some(&file_info.php_ast), Some(&file_info.phpdoc_ast)),
     );
     file_info.diagnostics = syntax(file_info.php_ast.root_node(), &file_info.content);
+    state
+        .connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            PublishDiagnostics::METHOD.to_string(),
+            PublishDiagnosticsParams {
+                uri: params.text_document.uri,
+                version: Some(params.text_document.version),
+                diagnostics: file_info.diagnostics.clone(),
+            },
+        )))?;
+
 
     state.worker_send.send(Task::AnalyzeFile(file_name))?;
 
