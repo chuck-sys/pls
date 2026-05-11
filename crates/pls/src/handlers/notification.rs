@@ -69,6 +69,9 @@ pub fn did_change_text_document(
         }
     }
 
+    // FIXME handle errors when you execute document changes
+    (file_info.php_ast, file_info.phpdoc_ast) = parse(&file_info.content, (Some(&file_info.php_ast), Some(&file_info.phpdoc_ast)));
+
     state.worker_send.send(Task::AnalyzeFile(file_name))?;
 
     Ok(())
