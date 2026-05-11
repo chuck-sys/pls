@@ -1,15 +1,16 @@
+use crossbeam_channel::{Receiver, Sender, select};
+use lsp_server::{Connection, Message, Notification, Request};
+use lsp_types::notification::PublishDiagnostics;
 use lsp_types::*;
-use lsp_server::{Message, Connection, Notification, Request};
-use crossbeam_channel::{select, Receiver, Sender};
 
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use pls_types::SegmentPool;
 
-use crate::registry::{RequestRegistry, NotificationRegistry};
 use crate::config::Config;
 use crate::messages::Task;
+use crate::registry::{NotificationRegistry, RequestRegistry};
 use crate::stubs::FileMapping;
 
 #[derive(Debug)]
@@ -20,7 +21,7 @@ pub struct FileInfo {
     pub phpdoc_ast: tree_sitter::Tree,
     pub version: i32,
     // pub symbols: HashMap<tree_sitter::Range, ()>,
-    // pub diagnostics: Vec<()>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 pub struct Parsers {
@@ -31,18 +32,22 @@ pub struct Parsers {
 impl Parsers {
     pub fn new() -> Self {
         let mut php = tree_sitter::Parser::new();
-        php.set_language(&tree_sitter_php::LANGUAGE_PHP.into()).expect("unable to set php language parser");
+        php.set_language(&tree_sitter_php::LANGUAGE_PHP.into())
+            .expect("unable to set php language parser");
         let mut phpdoc = tree_sitter::Parser::new();
-        phpdoc.set_language(&tree_sitter_phpdoc::language()).expect("unable to set phpdoc language parser");
+        phpdoc
+            .set_language(&tree_sitter_phpdoc::language())
+            .expect("unable to set phpdoc language parser");
 
-        Self {
-            php,
-            phpdoc,
-        }
+        Self { php, phpdoc }
     }
 
     /// TODO parse phpdoc into ast, probably requires changes to [`FileInfo`]
-    pub fn parse(&mut self, content: &str, original_tree: Option<&tree_sitter::Tree>) -> Option<tree_sitter::Tree> {
+    pub fn parse(
+        &mut self,
+        content: &str,
+        original_tree: Option<&tree_sitter::Tree>,
+    ) -> Option<tree_sitter::Tree> {
         self.php.parse(content, original_tree)
     }
 }
@@ -90,7 +95,9 @@ impl GlobalState {
             PathBuf::from(stubs_filename),
         );
         let (worker_send, worker_recv) = crossbeam_channel::unbounded();
-        worker_send.send(Task::AnalyzeStubs).expect("stubs should be available for analysis");
+        worker_send
+            .send(Task::AnalyzeStubs)
+            .expect("stubs should be available for analysis");
 
         let fqn_interns = SegmentPool::new();
         let stub_mappings = FileMapping::default();
@@ -160,15 +167,17 @@ impl GlobalState {
 
 fn supported_capabilities() -> ServerCapabilities {
     ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
-            open_close: Some(true),
-            change: Some(TextDocumentSyncKind::INCREMENTAL),
-            will_save: None,
-            will_save_wait_until: None,
-            save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
-                include_text: Some(true)
-            })),
-        })),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::INCREMENTAL),
+                will_save: None,
+                will_save_wait_until: None,
+                save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                    include_text: Some(true),
+                })),
+            },
+        )),
         document_symbol_provider: Some(OneOf::Left(true)),
         code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
             code_action_kinds: Some(vec![CodeActionKind::SOURCE]),

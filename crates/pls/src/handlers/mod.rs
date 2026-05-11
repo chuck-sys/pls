@@ -3,8 +3,8 @@ pub mod request;
 
 use lsp_server::{Request, Response};
 
-use lsp_types::request::*;
 use lsp_types::notification::*;
+use lsp_types::request::*;
 
 use crate::global_state::GlobalState;
 use notification::*;

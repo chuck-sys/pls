@@ -1,5 +1,4 @@
 /// PHP types.
-
 use tree_sitter::Node;
 
 use std::boxed::Box;

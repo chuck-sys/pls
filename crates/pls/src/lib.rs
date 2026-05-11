@@ -5,6 +5,6 @@ mod file;
 pub mod global_state;
 mod handlers;
 mod messages;
+pub mod registry;
 mod scope;
 mod stubs;
-pub mod registry;

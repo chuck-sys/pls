@@ -11,8 +11,8 @@ use std::sync::{Arc, OnceLock};
 use pls_types::PhpNamespace;
 use pls_types::Type;
 
-use crate::global_state::FileInfo;
 use crate::compat::to_point;
+use crate::global_state::FileInfo;
 
 pub struct FileData {
     pub contents: String,

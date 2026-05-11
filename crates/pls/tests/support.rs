@@ -1,14 +1,14 @@
 use serde::Serialize;
 
-use lsp_server::{Notification, Message, Request, RequestId, Response, Connection};
+use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::*;
 
 use pls::global_state::GlobalState;
-use pls::registry::{RequestRegistry, NotificationRegistry};
+use pls::registry::{NotificationRegistry, RequestRegistry};
 
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use std::str::FromStr;
 
 pub struct FakeClient {
     conn: Connection,
@@ -39,20 +39,27 @@ impl FakeClient {
             }
         }
 
-        Err(anyhow::anyhow!("no responses within the previous {limit} messages"))
+        Err(anyhow::anyhow!(
+            "no responses within the previous {limit} messages"
+        ))
     }
 
     pub fn request<R>(&mut self, params: R::Params) -> usize
-        where R: lsp_types::request::Request,
-              R::Params: Serialize,
+    where
+        R: lsp_types::request::Request,
+        R::Params: Serialize,
     {
-        self.conn.sender.send(
-            Request::new(
-                RequestId::from(self.next_req_id as i32),
-                R::METHOD.to_owned(),
-                params,
-            ).into()
-        ).unwrap();
+        self.conn
+            .sender
+            .send(
+                Request::new(
+                    RequestId::from(self.next_req_id as i32),
+                    R::METHOD.to_owned(),
+                    params,
+                )
+                .into(),
+            )
+            .unwrap();
 
         self.next_req_id += 1;
 
@@ -60,26 +67,23 @@ impl FakeClient {
     }
 
     pub fn notify<N>(&self, params: N::Params)
-        where N: lsp_types::notification::Notification,
-              N::Params: Serialize,
+    where
+        N: lsp_types::notification::Notification,
+        N::Params: Serialize,
     {
-        self.conn.sender.send(
-            Notification::new(
-                N::METHOD.to_owned(),
-                params,
-            ).into()
-        ).unwrap();
+        self.conn
+            .sender
+            .send(Notification::new(N::METHOD.to_owned(), params).into())
+            .unwrap();
     }
 
     pub fn initialize(&mut self) {
         self.request::<request::Initialize>(InitializeParams {
             process_id: None,
-            workspace_folders: Some(vec![
-                WorkspaceFolder {
-                    uri: Uri::from_str("file://.").unwrap(),
-                    name: String::from("folder"),
-                },
-            ]),
+            workspace_folders: Some(vec![WorkspaceFolder {
+                uri: Uri::from_str("file://.").unwrap(),
+                name: String::from("folder"),
+            }]),
             ..Default::default()
         });
         self.notify::<notification::Initialized>(InitializedParams {});
@@ -103,14 +107,16 @@ pub struct TestConfig {
 }
 
 pub fn run_with<F>(test_cfg: TestConfig, cb: F)
-    where F: FnOnce(&mut FakeClient)
+where
+    F: FnOnce(&mut FakeClient),
 {
     let (connection, client) = Connection::memory();
     let mut client = FakeClient::new(client);
     let (tx, rx) = crossbeam_channel::bounded(2);
     let tx2 = tx.clone();
     thread::spawn(move || {
-        let mut state = GlobalState::new(test_cfg.stubs_filename, connection).expect("global state initialization");
+        let mut state = GlobalState::new(test_cfg.stubs_filename, connection)
+            .expect("global state initialization");
         let notification_registry = NotificationRegistry::default();
         let request_registry = RequestRegistry::default();
         state.main_loop((&notification_registry, &request_registry));
@@ -136,7 +142,10 @@ pub fn run_with<F>(test_cfg: TestConfig, cb: F)
             panic!("Timeout {t:?} passed and main loop still hasn't stopped!");
         }
         Err(e) => {
-            panic!("Error occurred trying to receive from shutdown channel: {:?}", e);
+            panic!(
+                "Error occurred trying to receive from shutdown channel: {:?}",
+                e
+            );
         }
     }
 }

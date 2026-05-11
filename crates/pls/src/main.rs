@@ -9,9 +9,9 @@ mod file;
 mod global_state;
 mod handlers;
 mod messages;
+mod registry;
 mod scope;
 mod stubs;
-mod registry;
 
 use global_state::GlobalState;
 
@@ -52,7 +52,8 @@ fn main() -> anyhow::Result<()> {
             log::debug!("starting server version {}", env!("CARGO_PKG_VERSION"));
 
             let (connection, io_threads) = Connection::stdio();
-            let mut state = GlobalState::new(&stubs_filename, connection).expect("global state initialization");
+            let mut state =
+                GlobalState::new(&stubs_filename, connection).expect("global state initialization");
             let notification_registry = registry::NotificationRegistry::default();
             let request_registry = registry::RequestRegistry::default();
 

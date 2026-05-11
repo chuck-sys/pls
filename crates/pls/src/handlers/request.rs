@@ -6,17 +6,29 @@ use lsp_types::*;
 
 use crate::global_state::GlobalState;
 
-fn send_ok<T: serde::Serialize>(connection: &Connection, id: RequestId, result: &T) -> Result<(), SendError<Message>> {
+fn send_ok<T: serde::Serialize>(
+    connection: &Connection,
+    id: RequestId,
+    result: &T,
+) -> Result<(), SendError<Message>> {
     let response = Response {
         id,
         result: Some(serde_json::to_value(result).unwrap()),
         error: None,
     };
 
-    connection.sender.send(Message::Response(response)).map(|_| ())
+    connection
+        .sender
+        .send(Message::Response(response))
+        .map(|_| ())
 }
 
-fn send_err<T: serde::Serialize>(connection: &Connection, id: RequestId, code: lsp_server::ErrorCode, msg: &str) -> Result<(), SendError<Message>> {
+fn send_err<T: serde::Serialize>(
+    connection: &Connection,
+    id: RequestId,
+    code: lsp_server::ErrorCode,
+    msg: &str,
+) -> Result<(), SendError<Message>> {
     let response = Response {
         id,
         result: None,
@@ -27,7 +39,10 @@ fn send_err<T: serde::Serialize>(connection: &Connection, id: RequestId, code: l
         }),
     };
 
-    connection.sender.send(Message::Response(response)).map(|_| ())
+    connection
+        .sender
+        .send(Message::Response(response))
+        .map(|_| ())
 }
 
 pub fn code_action(

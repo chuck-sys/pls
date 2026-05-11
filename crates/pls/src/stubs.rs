@@ -5,9 +5,9 @@ use tree_sitter_php::LANGUAGE_PHP;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::LazyLock;
-use std::rc::Rc;
 
 static CONST_QUERY: LazyLock<Query> =
     LazyLock::new(|| Query::new(&LANGUAGE_PHP.into(), "(array_creation_expression) @a").unwrap());
@@ -97,7 +97,10 @@ impl FileMapping {
                     let (item0, item1) = Self::node_to_single_mapping(child, content)?;
                     let file = PathBuf::from_str(&item1).unwrap();
 
-                    let file = files.get(&file).map(|f| f.clone()).unwrap_or(Rc::from(file));
+                    let file = files
+                        .get(&file)
+                        .map(|f| f.clone())
+                        .unwrap_or(Rc::from(file));
 
                     mapping.insert(item0, file.clone());
                     files.insert(file);
