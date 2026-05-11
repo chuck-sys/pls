@@ -16,7 +16,8 @@ use crate::stubs::FileMapping;
 pub struct FileInfo {
     pub file_name: PathBuf,
     pub content: String,
-    pub ast: tree_sitter::Tree,
+    pub php_ast: tree_sitter::Tree,
+    pub phpdoc_ast: tree_sitter::Tree,
     pub version: i32,
     // pub symbols: HashMap<tree_sitter::Range, ()>,
     // pub diagnostics: Vec<()>,
@@ -123,12 +124,8 @@ impl GlobalState {
                             self.handle_request(req_reg, req);
                         }
                         Ok(Message::Notification(not)) => self.handle_notification(notif_reg, not),
-                        Ok(Message::Response(resp)) => {
-                            log::error!("Unexpected response: {:?}", resp);
-                        }
-                        Err(e) => {
-                            log::error!("Err in receiving connection message: {:?}", e);
-                        }
+                        Ok(Message::Response(resp)) => log::error!("Unexpected response: {resp:?}"),
+                        Err(e) => log::error!("Err in receiving connection message: {e:?}"),
                     }
                 }
                 recv(&self.worker_recv) -> task => {
@@ -136,10 +133,12 @@ impl GlobalState {
                         Ok(Task::AnalyzeStubs) => {
                             match FileMapping::from_filename(&self.config.stubs_filename) {
                                 Ok(mapping) => self.stub_mappings = mapping,
-                                Err(e) => log::error!("Err in reading php stubs: {:?}", e),
+                                Err(e) => log::error!("Err in reading php stubs: {e:?}"),
                             }
                         }
-                        Err(e) => log::error!("Err in receiving worker tasks: {:?}", e),
+                        Ok(Task::AnalyzeFile(path)) => {
+                        }
+                        Err(e) => log::error!("Err in receiving worker tasks: {e:?}"),
                     }
                 }
             }
@@ -161,9 +160,15 @@ impl GlobalState {
 
 fn supported_capabilities() -> ServerCapabilities {
     ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::INCREMENTAL,
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
+            open_close: Some(true),
+            change: Some(TextDocumentSyncKind::INCREMENTAL),
+            will_save: None,
+            will_save_wait_until: None,
+            save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                include_text: Some(true)
+            })),
+        })),
         document_symbol_provider: Some(OneOf::Left(true)),
         code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
             code_action_kinds: Some(vec![CodeActionKind::SOURCE]),

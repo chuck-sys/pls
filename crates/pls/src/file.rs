@@ -11,6 +11,7 @@ use std::sync::{Arc, OnceLock};
 use pls_types::PhpNamespace;
 use pls_types::Type;
 
+use crate::global_state::FileInfo;
 use crate::compat::to_point;
 
 pub struct FileData {
@@ -34,6 +35,50 @@ impl Display for FileError {
                 write!(f, "file range {:?} isn't a valid byte offset", range)
             }
         }
+    }
+}
+
+impl FileInfo {
+    pub fn change(&mut self, event: TextDocumentContentChangeEvent) -> anyhow::Result<()> {
+        if let Some(r) = event.range {
+            if let (Some(start_byte), Some(end_byte)) = (
+                byte_offset(&self.content, &r.start),
+                byte_offset(&self.content, &r.end),
+            ) {
+                let input_edit = InputEdit {
+                    start_byte,
+                    old_end_byte: end_byte,
+                    new_end_byte: start_byte + event.text.len(),
+                    start_position: to_point(&r.start),
+                    old_end_position: to_point(&r.end),
+                    new_end_position: {
+                        let mut row = r.start.line as usize;
+                        let mut column = r.start.character as usize;
+
+                        for c in event.text.chars() {
+                            if c == '\n' {
+                                row += 1;
+                                column = 0;
+                            } else {
+                                column += 1;
+                            }
+                        }
+
+                        tree_sitter::Point { row, column }
+                    },
+                };
+                self.php_ast.edit(&input_edit);
+                self.phpdoc_ast.edit(&input_edit);
+                self.content
+                    .replace_range(start_byte..end_byte, &event.text);
+            } else {
+                return Err(anyhow::anyhow!("invalid file range {r:?}"));
+            }
+        } else {
+            self.content = event.text.clone();
+        }
+
+        Ok(())
     }
 }
 

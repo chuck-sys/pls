@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::panic::RefUnwindSafe;
 
-use lsp_types::notification::{DidChangeTextDocument, DidOpenTextDocument};
+use lsp_types::notification::{DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument};
 use lsp_types::request::CodeActionRequest;
 use lsp_server::{Request, RequestId, Notification};
 use serde::de::DeserializeOwned;
@@ -55,7 +55,8 @@ impl Default for NotificationRegistry {
         let mut me = Self { handlers: Default::default() };
         me
             .on::<DidOpenTextDocument, _>(handlers::notification::did_open_text_document)
-            .on::<DidChangeTextDocument, _>(handlers::notification::did_change_text_document);
+            .on::<DidChangeTextDocument, _>(handlers::notification::did_change_text_document)
+            .on::<DidSaveTextDocument, _>(handlers::notification::did_save_text_document);
 
         me
     }
