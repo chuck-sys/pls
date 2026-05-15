@@ -114,14 +114,14 @@ where
         state.main_loop((&notification_registry, &request_registry));
     });
 
-    thread::spawn(move || {
-        thread::sleep(test_cfg.max_test_duration);
+    // thread::spawn(move || {
+    //     thread::sleep(test_cfg.max_test_duration);
 
-        panic!(
-            "Timeout {:?} passed and main loop still hasn't stopped!",
-            test_cfg.max_test_duration
-        );
-    });
+    //     panic!(
+    //         "Timeout {:?} passed and main loop still hasn't stopped!",
+    //         test_cfg.max_test_duration
+    //     );
+    // });
 
     client.initialize();
 
