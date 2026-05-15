@@ -40,7 +40,6 @@ pub fn did_save_text_document(
             },
         )))?;
 
-
     state.file_infos.insert(
         file_name.clone(),
         FileInfo {
@@ -149,7 +148,6 @@ pub fn did_change_text_document(
                 diagnostics: file_info.diagnostics.clone(),
             },
         )))?;
-
 
     state.worker_send.send(Task::AnalyzeFile(file_name))?;
 

@@ -2,6 +2,7 @@ use lsp_server::Connection;
 
 use std::env;
 
+mod code_action;
 mod compat;
 mod config;
 mod diagnostics;
@@ -28,7 +29,11 @@ fn main() -> anyhow::Result<()> {
         }
 
         if &arg == VERSION_ARG {
-            log::info!("{} version {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            log::info!(
+                "{} version {}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION")
+            );
             return Ok(());
         } else {
             stubs_filename = Some(arg);

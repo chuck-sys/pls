@@ -5,7 +5,7 @@ use lsp_server::{Notification, Request, RequestId};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
 };
-use lsp_types::request::CodeActionRequest;
+use lsp_types::request::{CodeActionRequest, CodeActionResolveRequest};
 use serde::de::DeserializeOwned;
 
 use crate::{global_state::GlobalState, handlers};
@@ -87,7 +87,8 @@ impl Default for RequestRegistry {
         let mut me = Self {
             handlers: Default::default(),
         };
-        me.on::<CodeActionRequest, _>(handlers::request::code_action);
+        me.on::<CodeActionRequest, _>(handlers::request::code_action)
+            .on::<CodeActionResolveRequest, _>(handlers::request::code_action_resolve);
 
         me
     }

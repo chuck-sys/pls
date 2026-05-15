@@ -1,3 +1,4 @@
+mod code_action;
 mod compat;
 mod config;
 mod diagnostics;

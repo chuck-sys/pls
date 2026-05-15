@@ -95,12 +95,6 @@ impl FakeClient {
     }
 }
 
-#[derive(Debug)]
-enum QuittingState {
-    GracefulShutdown,
-    ThreadTimeout(Duration),
-}
-
 pub struct TestConfig {
     pub stubs_filename: &'static str,
     pub max_test_duration: Duration,
@@ -112,16 +106,21 @@ where
 {
     let (connection, client) = Connection::memory();
     let mut client = FakeClient::new(client);
-    let (tx, rx) = crossbeam_channel::bounded(2);
-    let tx2 = tx.clone();
     thread::spawn(move || {
         let mut state = GlobalState::new(test_cfg.stubs_filename, connection)
             .expect("global state initialization");
         let notification_registry = NotificationRegistry::default();
         let request_registry = RequestRegistry::default();
         state.main_loop((&notification_registry, &request_registry));
+    });
 
-        let _ = tx2.send(QuittingState::GracefulShutdown);
+    thread::spawn(move || {
+        thread::sleep(test_cfg.max_test_duration);
+
+        panic!(
+            "Timeout {:?} passed and main loop still hasn't stopped!",
+            test_cfg.max_test_duration
+        );
     });
 
     client.initialize();
@@ -129,23 +128,4 @@ where
     cb(&mut client);
 
     client.shutdown();
-
-    thread::spawn(move || {
-        thread::sleep(test_cfg.max_test_duration);
-
-        let _ = tx.send(QuittingState::ThreadTimeout(test_cfg.max_test_duration));
-    });
-
-    match rx.recv() {
-        Ok(QuittingState::GracefulShutdown) => {}
-        Ok(QuittingState::ThreadTimeout(t)) => {
-            panic!("Timeout {t:?} passed and main loop still hasn't stopped!");
-        }
-        Err(e) => {
-            panic!(
-                "Error occurred trying to receive from shutdown channel: {:?}",
-                e
-            );
-        }
-    }
 }

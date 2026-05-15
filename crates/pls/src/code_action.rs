@@ -11,7 +11,7 @@ use crate::file::offset_to_position;
 pub const PHPECHO_TITLE: &'static str = "Convert `<?php echo` into `<?=`";
 
 #[derive(Serialize, Deserialize)]
-pub struct CodeActionValue {
+pub struct PhpEchoParams {
     pub uri: Uri,
 }
 
@@ -48,8 +48,8 @@ pub fn changes_phpecho(uri: &Uri, contents: &str, version: i32) -> Option<Docume
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
     use lsp_types::*;
+    use std::str::FromStr;
 
     use super::changes_phpecho;
 
