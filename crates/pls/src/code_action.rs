@@ -1,8 +1,8 @@
 use lsp_types::*;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Node, Query, QueryCursor, StreamingIterator};
 use tree_sitter_php::LANGUAGE_PHP;
-use regex::Regex;
 
 use std::sync::LazyLock;
 
@@ -20,8 +20,13 @@ pub struct PhpEchoParams {
 
 static PHPECHO_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<\?php\s+echo\s+([^;]+);\s*\?>").unwrap());
-static CONCAT_STR_QUERY: LazyLock<Query> = 
-    LazyLock::new(|| Query::new(&LANGUAGE_PHP.into(), r#"(binary_expression operator: ".") @concat_expr"#).unwrap());
+static CONCAT_STR_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(
+        &LANGUAGE_PHP.into(),
+        r#"(binary_expression operator: ".") @concat_expr"#,
+    )
+    .unwrap()
+});
 
 fn is_concat_expr(content: &str, node: &Node<'_>) -> bool {
     if node.kind() != "binary_expression" {
@@ -37,8 +42,10 @@ fn is_concat_expr(content: &str, node: &Node<'_>) -> bool {
 
 fn closest_concat_expr<'a>(file_info: &'a FileInfo, range: &Range) -> Option<Node<'a>> {
     let root_node = file_info.php_ast.root_node();
-    let Some(node) = root_node.descendant_for_point_range(to_point(&range.start), to_point(&range.end)) else {
-        return None
+    let Some(node) =
+        root_node.descendant_for_point_range(to_point(&range.start), to_point(&range.end))
+    else {
+        return None;
     };
 
     match node.kind() {
@@ -70,7 +77,8 @@ pub fn can_change_to_tmplstr(file_info: &FileInfo, range: &Range) -> bool {
 }
 
 pub fn changes_tmplstr(uri: &Uri, file_info: &FileInfo, range: &Range) -> Option<DocumentChanges> {
-    let Some(starting_node) = closest_concat_expr(file_info, range).map(outermost_concat_expr) else {
+    let Some(starting_node) = closest_concat_expr(file_info, range).map(outermost_concat_expr)
+    else {
         return None;
     };
 
@@ -80,11 +88,14 @@ pub fn changes_tmplstr(uri: &Uri, file_info: &FileInfo, range: &Range) -> Option
         version: Some(file_info.version),
     };
     let mut cursor = QueryCursor::new();
-    let mut captures = cursor.captures(&CONCAT_STR_QUERY, starting_node, file_info.content.as_bytes());
+    let mut captures = cursor.captures(
+        &CONCAT_STR_QUERY,
+        starting_node,
+        file_info.content.as_bytes(),
+    );
 
     while let Some((m, _)) = captures.next() {
-        for c in m.captures.iter() {
-        }
+        for c in m.captures.iter() {}
     }
 
     Some(DocumentChanges::Edits(vec![TextDocumentEdit {

@@ -4,7 +4,7 @@ use lsp_types::*;
 use pls_types::UriExt as _;
 use serde_json::json;
 
-use crate::code_action::{TMPLSTR_TITLE, PHPECHO_TITLE, can_change_to_tmplstr};
+use crate::code_action::{PHPECHO_TITLE, TMPLSTR_TITLE, can_change_to_tmplstr};
 use crate::global_state::GlobalState;
 
 fn send_ok<T: serde::Serialize>(
