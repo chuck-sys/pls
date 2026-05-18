@@ -4,7 +4,7 @@ use lsp_types::*;
 use pls_types::UriExt as _;
 use serde_json::json;
 
-use crate::code_action::PHPECHO_TITLE;
+use crate::code_action::{TMPLSTR_TITLE, PHPECHO_TITLE, can_change_to_tmplstr};
 use crate::global_state::GlobalState;
 
 fn send_ok<T: serde::Serialize>(
@@ -60,10 +60,24 @@ pub fn code_action(
         .map(|x| x.to_path_buf())
     {
         if let Some(file_info) = state.file_infos.get(&file_name) {
-            if params.range.start == params.range.end && file_info.content.contains("<?php echo ") {
+            if params.range.start == params.range.end {
+                if file_info.content.contains("<?php echo ") {
+                    actions.push(
+                        CodeAction {
+                            title: PHPECHO_TITLE.to_string(),
+                            kind: Some(CodeActionKind::SOURCE),
+                            data: Some(json!({"uri": params.text_document.uri})),
+                            ..CodeAction::default()
+                        }
+                        .into(),
+                    );
+                }
+            }
+
+            if can_change_to_tmplstr(file_info, &params.range) {
                 actions.push(
                     CodeAction {
-                        title: PHPECHO_TITLE.to_string(),
+                        title: TMPLSTR_TITLE.to_string(),
                         kind: Some(CodeActionKind::SOURCE),
                         data: Some(json!({"uri": params.text_document.uri})),
                         ..CodeAction::default()

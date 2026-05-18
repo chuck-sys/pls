@@ -21,6 +21,7 @@ A long list of things I want to have.
 ## Code actions
 
 - [x] Convert most forms of `<?php echo ... ?>` into `<?= ... ?>`
+- [ ] Convert string concatenation to string templating
 - [ ] Convert function calls into function calls with named parameters, while removing redundant default
   arguments
 - [ ] Convert an applicable for loop over an array into an equivalent foreach loop
